@@ -15,48 +15,59 @@ let cachedClientData = null;
 let lastFetchTime = 0;
 
 async function getDriveClient() {
-    console.log('Iniciando getDriveClient...');
+    // Leemos el contenido del archivo secreto como texto
     const content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
+    // Convertimos el texto a un objeto JSON
     const credentials = JSON.parse(content);
-    console.log('Credenciales leídas y parseadas correctamente.');
 
+    // Esta es la forma robusta: le pasamos el objeto de credenciales directamente
     const auth = new google.auth.GoogleAuth({
-        credentials,
+        credentials, // Usamos el objeto parseado en lugar de la ruta del archivo
         scopes: ['https://www.googleapis.com/auth/drive.readonly'],
     });
     const authClient = await auth.getClient();
-    console.log('Cliente de autenticación de Google creado.');
     return google.drive({ version: 'v3', auth: authClient });
 }
 
 async function getClientDataFromDrive(drive) {
-    console.log('Buscando archivo en Drive...');
-    const res = await drive.files.list({
-        q: `name='${DATA_FILE_NAME}' and trashed=false`,
-        fields: 'files(id, name)',
-        spaces: 'drive',
-    });
-    console.log('Respuesta de la API de Drive recibida.');
+    try {
+        const res = await drive.files.list({
+            q: `name='${DATA_FILE_NAME}' and trashed=false`,
+            fields: 'files(id, name)',
+            spaces: 'drive',
+        });
 
-    const files = res.data.files;
-    if (files.length === 0) {
-        throw new Error('No se encontró el archivo datos_planilla_juridica.json en Google Drive. Asegúrate de que exista y esté compartido con el email de la cuenta de servicio.');
+        const files = res.data.files;
+        if (files.length === 0) {
+            throw new Error('No se encontró el archivo datos_planilla_juridica.json en Google Drive. Asegúrate de que exista y esté compartido con el email de la cuenta de servicio.');
+        }
+
+        const fileId = files[0].id;
+        const fileRes = await drive.files.get({ fileId: fileId, alt: 'media' });
+        return JSON.parse(fileRes.data);
+
+    } catch (error) {
+        console.error('Error al obtener datos de Drive:', error.message);
+        throw new Error('Could not retrieve data from Google Drive');
     }
-
-    const fileId = files[0].id;
-    console.log(`Archivo encontrado con ID: ${fileId}. Descargando contenido...`);
-    const fileRes = await drive.files.get({ fileId: fileId, alt: 'media' });
-    console.log('Contenido del archivo descargado.');
-    return JSON.parse(fileRes.data);
 }
 
 app.get('/api/expediente/:dni', async (req, res) => {
-    try {
-        console.log('Recibida solicitud para DNI:', req.params.dni);
-        const drive = await getDriveClient();
-        const data = await getClientDataFromDrive(drive);
+    const dniBuscado = req.params.dni;
+    const currentTime = Date.now();
 
-        const cliente = data.find(c => String(c.dni).trim() === String(req.params.dni).trim());
+    try {
+        if (!cachedClientData || (currentTime - lastFetchTime > 300000)) {
+            console.log('Cache expirada. Obteniendo datos frescos de Drive...');
+            const drive = await getDriveClient();
+            cachedClientData = await getClientDataFromDrive(drive);
+            lastFetchTime = currentTime;
+            console.log(`Datos cargados. Total de clientes: ${cachedClientData.length}`);
+        } else {
+            console.log('Usando datos cacheados.');
+        }
+
+        const cliente = cachedClientData.find(c => String(c.dni).trim() === String(dniBuscado).trim());
 
         if (cliente) {
             res.json(cliente);
@@ -64,18 +75,16 @@ app.get('/api/expediente/:dni', async (req, res) => {
             res.status(404).json({ error: 'Expediente no encontrado' });
         }
     } catch (error) {
-        // ESTA ES LA PARTE IMPORTANTE
-        // Enviamos el error real y detallado para poder verlo
         console.error('Ha ocurrido un error grave:', error);
         res.status(500).json({ 
-            error: 'Error interno del servidor. Revisa los logs de Render.',
-            detalle: error.toString() // El mensaje "soplón"
+            error: 'Error interno del servidor al procesar la solicitud.',
+            detalle: error.toString()
         });
     }
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor del portal de clientes funcionando con el código de DIAGNÓSTICO FINAL!');
+  res.send('¡Servidor del portal de clientes funcionando con el código REAL y DEFINITIVO!');
 });
 
 app.listen(PORT, () => {

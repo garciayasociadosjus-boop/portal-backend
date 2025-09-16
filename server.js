@@ -1,113 +1,91 @@
-<!DOCTYPE html>
-<html lang="es-AR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consulta de Expediente</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:wght@400;600;700&family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --primary: #0A0E1A; --secondary: #151B2D; --accent: #374151; --light: #F9FAFB; --white: #FFFFFF; --silver: #E5E7EB; }
-        body { font-family: 'Source Sans Pro', sans-serif; background-color: var(--light); color: var(--primary); margin: 0; padding: 2rem; }
-        .container { background-color: var(--white); border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); max-width: 800px; width: 100%; margin: 2rem auto; }
-        .header { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: var(--white); padding: 2rem; text-align: center; border-radius: 15px 15px 0 0; }
-        .header h1 { font-family: 'Crimson Text', serif; margin: 0; }
-        .content { padding: 2rem; }
-        #status { text-align: center; font-size: 1.2rem; font-weight: 600; padding: 3rem; }
-        .expediente-block { margin-bottom: 3rem; border: 1px solid var(--silver); border-radius: 10px; overflow: hidden; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--silver); padding: 1.5rem; background-color: #fdfdfd;}
-        .info-item h3 { font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 1px; }
-        .info-item p { margin: 0; font-size: 1.1rem; font-weight: 600; }
-        .history-section { padding: 1.5rem; }
-        .history-section h2 { font-family: 'Crimson Text', serif; margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }
-        .history-item { background-color: var(--light); border-left: 4px solid var(--secondary); padding: 1rem; margin-bottom: 1rem; border-radius: 5px; }
-        .history-item-date { font-weight: 700; color: var(--primary); margin-bottom: 0.5rem; }
-        .history-item-text { line-height: 1.6; }
-        .error { color: #e74c3c; }
-    </style>
-</head>
-<body>
-    <div id="main-container">
-        <div class="header">
-            <h1>Seguimiento de Expediente(s)</h1>
-        </div>
-        <div class="content">
-            <div id="status">Cargando información del expediente...</div>
-        </div>
-    </div>
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-    <script>
-        document.addEventListener('DOMContentLoaded', async () => {
-            const statusDiv = document.getElementById('status');
-            const contentDiv = document.querySelector('.content');
+const app = express();
+const PORT = process.env.PORT || 3001;
 
-            try {
-                const params = new URLSearchParams(window.location.search);
-                const dni = params.get('dni');
+const driveFileUrl = process.env.DRIVE_FILE_URL;
+const geminiApiKey = process.env.GEMINI_API_KEY;
 
-                if (!dni) {
-                    throw new Error('No se proporcionó un DNI para la consulta.');
-                }
+let genAI;
+// **MEJORA CLAVE A PRUEBA DE FALLOS**
+// Solo intentamos iniciar la IA si la clave existe.
+if (geminiApiKey) {
+    try {
+        genAI = new GoogleGenerativeAI(geminiApiKey);
+        console.log("Cliente de IA inicializado correctamente.");
+    } catch (error) {
+        console.error("Error al inicializar el cliente de IA. La IA estará desactivada.", error);
+        genAI = null;
+    }
+} else {
+    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY en Render. La IA estará desactivada.");
+}
 
-                const apiUrl = `https://portal-backend-v2.onrender.com/api/expediente/${dni}`;
-                const response = await fetch(apiUrl);
+app.use(cors());
+app.use(express.json());
 
-                if (response.status === 404) {
-                    throw new Error('No se encontró ningún expediente asociado a ese DNI. Por favor, verifique el número e intente nuevamente.');
-                }
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detalle || 'Hubo un problema al conectar con el servidor.');
-                }
+async function getClientDataFromUrl() {
+    if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
+    try {
+        const response = await axios.get(driveFileUrl, { responseType: 'json' });
+        let data = response.data;
+        if (typeof data === 'string') data = JSON.parse(data);
+        return data;
+    } catch (error) {
+        throw new Error('No se pudo procesar el archivo de datos.');
+    }
+}
 
-                const data = await response.json();
+async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
+    if (!genAI || !observacionesArray || observacionesArray.length === 0) {
+        return observacionesArray; // Si no hay IA o no hay nada que traducir, devolvemos el original.
+    }
 
-                if (!Array.isArray(data) || data.length === 0) {
-                    throw new Error('No se encontraron expedientes para el DNI proporcionado.');
-                }
-
-                contentDiv.innerHTML = '';
-
-                data.forEach(expediente => {
-                    const expedienteContainer = document.createElement('div');
-                    expedienteContainer.className = 'expediente-block';
-
-                    let historialHtml = '<p>No hay actuaciones para mostrar.</p>';
-                    if (expediente.observaciones && expediente.observaciones.length > 0) {
-                        // **CORRECCIÓN: Ordenamos por 'fecha' de más nueva a más vieja**
-                        const sortedObservaciones = expediente.observaciones.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-
-                        historialHtml = sortedObservaciones.map(obs => {
-                            // **CORRECCIÓN: Usamos 'fecha' para mostrar la fecha de la actuación**
-                            const fecha = new Date(obs.fecha + 'T00:00:00');
-                            const fechaFormateada = fecha.toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
-                            return `<div class="history-item"><div class="history-item-date">${fechaFormateada}</div><div class="history-item-text">${obs.texto}</div></div>`;
-                        }).join('');
-                    }
-
-                    expedienteContainer.innerHTML = `
-                        <div class="info-grid">
-                            <div class="info-item"><h3>Cliente</h3><p>${expediente.nombre || 'No disponible'}</p></div>
-                            <div class="info-item"><h3>Carátula</h3><p>${expediente.caratula || 'No disponible'}</p></div>
-                            <div class="info-item"><h3>N° Expediente</h3><p>${expediente.expediente || 'No disponible'}</p></div>
-                            <div class="info-item"><h3>Estado</h3><p>${expediente.estado || 'No disponible'}</p></div>
-                        </div>
-                        <div class="history-section">
-                            <h2>Historial de Actuaciones</h2>
-                            <div>${historialHtml}</div>
-                        </div>
-                    `;
-                    contentDiv.appendChild(expedienteContainer);
-                });
-
-            } catch (error) {
-                statusDiv.textContent = error.message;
-                statusDiv.classList.add('error');
-                contentDiv.innerHTML = ''; // Limpiamos por si queda algo
-                contentDiv.appendChild(statusDiv);
-            }
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const promesasDeTraduccion = observacionesArray.map(obs => {
+            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí la siguiente anotación en un tono activo y de compromiso, manteniendo la precisión técnica pero con un lenguaje claro. Anotación original: "${obs.texto}"`;
+            return model.generateContent(prompt).then(result => {
+                return { ...obs, texto: result.response.text().trim() };
+            }).catch(error => {
+                console.error(`Error en una llamada individual a la IA para la nota: "${obs.texto}"`, error);
+                return obs; // Si una falla, devolvemos la original.
+            });
         });
-    </script>
-</body>
-</html>
+        return await Promise.all(promesasDeTraduccion);
+    } catch (error) {
+        console.error("Error general al procesar con la IA:", error);
+        return observacionesArray;
+    }
+}
+
+app.get('/api/expediente/:dni', async (req, res) => {
+    const dniBuscado = req.params.dni;
+    try {
+        const clientsData = await getClientDataFromUrl();
+        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
+
+        if (expedientesEncontrados.length > 0) {
+            const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
+            for (const exp of expedientesParaCliente) {
+                exp.observaciones = await traducirObservacionesConIA(exp.observaciones, exp.nombre);
+            }
+            res.json(expedientesParaCliente);
+        } else {
+            res.status(404).json({ error: 'Expediente no encontrado' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
+    }
+});
+
+app.get('/', (req, res) => {
+  res.send('¡Servidor funcionando con IA v9 (A prueba de fallos)!');
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
+});

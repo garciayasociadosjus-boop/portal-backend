@@ -12,9 +12,9 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 let genAI;
 if (geminiApiKey) {
     genAI = new GoogleGenerativeAI(geminiApiKey);
-    console.log("Cliente de IA inicializado.");
+    console.log("Cliente de IA inicializado correctamente.");
 } else {
-    console.log("ADVERTENCIA: IA desactivada por falta de API Key.");
+    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY. La IA estará desactivada.");
 }
 
 app.use(cors());
@@ -24,8 +24,11 @@ async function getClientDataFromUrl() {
     if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
     try {
         const response = await axios.get(driveFileUrl, { responseType: 'json' });
-        return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+        let data = response.data;
+        if (typeof data === 'string') data = JSON.parse(data);
+        return data;
     } catch (error) {
+        console.error('Error al descargar o parsear el archivo:', error.message);
         throw new Error('No se pudo procesar el archivo de datos.');
     }
 }
@@ -34,15 +37,39 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
         return observacionesArray;
     }
+
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const promesasDeTraduccion = observacionesArray.map(obs => {
-            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí la siguiente anotación en un tono activo y de compromiso, manteniendo la precisión técnica pero con un lenguaje claro. Anotación original: "${obs.texto}"`;
-            return model.generateContent(prompt)
-                .then(result => ({ ...obs, texto: result.response.text().trim() }))
-                .catch(err => obs);
-        });
-        return await Promise.all(promesasDeTraduccion);
+
+        const historialParaIA = observacionesArray.map(obs => {
+            return `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`;
+        }).join('\n---\n');
+
+        const prompt = `
+            Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
+            A continuación, te proporciono una lista de anotaciones internas de su expediente.
+            Tu tarea es reescribir CADA anotación para que sea clara, empática y profesional, en un tono activo y de compromiso, sin usar jerga legal compleja pero manteniendo la precisión técnica.
+            Debes devolver tu respuesta EXCLUSIVAMENTE como un array de objetos JSON válido. Cada objeto debe tener dos claves: "fecha" y "texto". Mantené la fecha original de cada anotación.
+            No agregues comentarios, explicaciones, ni texto introductorio. Solo el array JSON.
+
+            Aquí están las anotaciones:
+            ---
+            ${historialParaIA}
+            ---
+        `;
+
+        const result = await model.generateContent(prompt);
+        const textoRespuesta = result.response.text().trim();
+
+        const textoJsonLimpio = textoRespuesta.replace(/```json/g, '').replace(/```/g, '');
+        const observacionesTraducidas = JSON.parse(textoJsonLimpio);
+
+        if(Array.isArray(observacionesTraducidas)) {
+            return observacionesTraducidas;
+        } else {
+            return observacionesArray;
+        }
+
     } catch (error) {
         console.error("Error al procesar con la IA:", error);
         return observacionesArray;
@@ -59,18 +86,10 @@ app.get('/api/expediente/:dni', async (req, res) => {
 
         if (expedientesEncontrados.length > 0) {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-            const hoy = new Date();
-            hoy.setHours(0, 0, 0, 0);
 
             for (const exp of expedientesParaCliente) {
-                if (exp.observaciones && Array.isArray(exp.observaciones)) {
-                    // **CORRECCIÓN: Filtramos usando solo el campo `fecha`**
-                    const observacionesVisibles = exp.observaciones.filter(obs => {
-                        if (!obs.fecha) return false;
-                        const fechaObs = new Date(obs.fecha + 'T00:00:00');
-                        return fechaObs <= hoy;
-                    });
-
+                 if (exp.observaciones && Array.isArray(exp.observaciones)) {
+                    const observacionesVisibles = exp.observaciones.filter(o => o.fecha);
                     exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
                 }
             }
@@ -84,7 +103,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v10 (Lógica de fecha DEFINITIVA)!');
+  res.send('¡Servidor funcionando con IA v11 (Final y Optimizado)!');
 });
 
 app.listen(PORT, () => {

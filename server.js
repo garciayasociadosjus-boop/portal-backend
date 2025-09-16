@@ -26,9 +26,7 @@ async function getClientDataFromUrl() {
     try {
         const response = await axios.get(driveFileUrl, { responseType: 'json' });
         let data = response.data;
-        if (typeof data === 'string') {
-            data = JSON.parse(data);
-        }
+        if (typeof data === 'string') data = JSON.parse(data);
         return data;
     } catch (error) {
         console.error('Error al descargar o parsear el archivo:', error.message);
@@ -44,22 +42,43 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-        const promesasDeTraduccion = observacionesArray.map(obs => {
-            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí la siguiente anotación en un tono activo y de compromiso, manteniendo la precisión técnica pero con un lenguaje claro. Anotación original: "${obs.texto}"`;
+        // 1. Formateamos todo el historial en un solo texto para la IA
+        const historialParaIA = observacionesArray.map(obs => {
+            return `FECHA: "${obs.fecha || obs.proximaRevision}"\nANOTACION ORIGINAL: "${obs.texto}"`;
+        }).join('\n---\n');
 
-            return model.generateContent(prompt).then(result => {
-                return { ...obs, texto: result.response.text().trim() };
-            }).catch(error => {
-                console.error("Error en una llamada individual a la IA:", error);
-                return obs; // Si una falla, devolvemos la original.
-            });
-        });
+        // 2. Creamos un prompt muy específico que pide una respuesta en formato JSON
+        const prompt = `
+            Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
+            A continuación, te proporciono una lista de anotaciones internas de su expediente.
+            Tu tarea es reescribir CADA anotación para que sea clara, empática y profesional, sin usar jerga legal compleja pero manteniendo la precisión técnica.
+            Debes devolver tu respuesta EXCLUSIVAMENTE como un array de objetos JSON válido. Cada objeto debe tener dos claves: "fecha" y "texto". Mantené la fecha original de cada anotación.
+            No agregues comentarios, explicaciones ni texto introductorio. Solo el array JSON.
 
-        return await Promise.all(promesasDeTraduccion);
+            Aquí están las anotaciones:
+            ---
+            ${historialParaIA}
+            ---
+        `;
+
+        const result = await model.generateContent(prompt);
+        const textoRespuesta = result.response.text().trim();
+
+        // 3. Parseamos la respuesta JSON de la IA
+        // Limpiamos la respuesta por si la IA agrega ```json ... ```
+        const textoJsonLimpio = textoRespuesta.replace(/```json/g, '').replace(/```/g, '');
+        const observacionesTraducidas = JSON.parse(textoJsonLimpio);
+
+        // Verificamos que sea un array para evitar errores
+        if(Array.isArray(observacionesTraducidas)) {
+            return observacionesTraducidas;
+        } else {
+            return observacionesArray; // Si la IA no devuelve un array, devolvemos el original
+        }
 
     } catch (error) {
         console.error("Error al procesar con la IA:", error);
-        return observacionesArray;
+        return observacionesArray; // Si hay un error, devolvemos las originales
     }
 }
 
@@ -75,9 +94,15 @@ app.get('/api/expediente/:dni', async (req, res) => {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
 
             for (const exp of expedientesParaCliente) {
-                // **CORRECCIÓN CLAVE:** Nos aseguramos de que solo procesamos y enviamos las observaciones que tienen una 'fecha' real.
-                const observacionesReales = exp.observaciones.filter(o => o.fecha);
-                exp.observaciones = await traducirObservacionesConIA(observacionesReales, exp.nombre);
+                const hoy = new Date();
+                hoy.setHours(0, 0, 0, 0);
+
+                const observacionesVisibles = exp.observaciones.filter(obs => {
+                    const fechaObs = new Date((obs.proximaRevision || obs.fecha) + 'T00:00:00');
+                    return fechaObs <= hoy;
+                });
+
+                exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
             }
             res.json(expedientesParaCliente);
         } else {
@@ -89,7 +114,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v6 (Simple y Directa)!');
+  res.send('¡Servidor funcionando con IA v7 (Optimizado)!');
 });
 
 app.listen(PORT, () => {

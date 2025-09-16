@@ -1,98 +1,113 @@
-const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Expediente</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:wght@400;600;700&family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #0A0E1A; --secondary: #151B2D; --accent: #374151; --light: #F9FAFB; --white: #FFFFFF; --silver: #E5E7EB; }
+        body { font-family: 'Source Sans Pro', sans-serif; background-color: var(--light); color: var(--primary); margin: 0; padding: 2rem; }
+        .container { background-color: var(--white); border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); max-width: 800px; width: 100%; margin: 2rem auto; }
+        .header { background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); color: var(--white); padding: 2rem; text-align: center; border-radius: 15px 15px 0 0; }
+        .header h1 { font-family: 'Crimson Text', serif; margin: 0; }
+        .content { padding: 2rem; }
+        #status { text-align: center; font-size: 1.2rem; font-weight: 600; padding: 3rem; }
+        .expediente-block { margin-bottom: 3rem; border: 1px solid var(--silver); border-radius: 10px; overflow: hidden; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--silver); padding: 1.5rem; background-color: #fdfdfd;}
+        .info-item h3 { font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 1px; }
+        .info-item p { margin: 0; font-size: 1.1rem; font-weight: 600; }
+        .history-section { padding: 1.5rem; }
+        .history-section h2 { font-family: 'Crimson Text', serif; margin-bottom: 1.5rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }
+        .history-item { background-color: var(--light); border-left: 4px solid var(--secondary); padding: 1rem; margin-bottom: 1rem; border-radius: 5px; }
+        .history-item-date { font-weight: 700; color: var(--primary); margin-bottom: 0.5rem; }
+        .history-item-text { line-height: 1.6; }
+        .error { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div id="main-container">
+        <div class="header">
+            <h1>Seguimiento de Expediente(s)</h1>
+        </div>
+        <div class="content">
+            <div id="status">Cargando información del expediente...</div>
+        </div>
+    </div>
 
-// --- INTERRUPTOR DE SEGURIDAD ---
-// Poner en 'true' solo si queremos intentar activar la IA.
-const USAR_IA = false; 
-// ---------------------------------
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const statusDiv = document.getElementById('status');
+            const contentDiv = document.querySelector('.content');
 
-const app = express();
-const PORT = process.env.PORT || 3001;
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const dni = params.get('dni');
 
-const driveFileUrl = process.env.DRIVE_FILE_URL;
-const geminiApiKey = process.env.GEMINI_API_KEY;
+                if (!dni) {
+                    throw new Error('No se proporcionó un DNI para la consulta.');
+                }
 
-let genAI;
-if (geminiApiKey && USAR_IA) {
-    genAI = new GoogleGenerativeAI(geminiApiKey);
-    console.log("Cliente de IA inicializado.");
-} else {
-    console.log("IA desactivada por el interruptor de seguridad o falta de API Key.");
-}
+                const apiUrl = `https://portal-backend-v2.onrender.com/api/expediente/${dni}`;
+                const response = await fetch(apiUrl);
 
-app.use(cors());
-app.use(express.json());
+                if (response.status === 404) {
+                    throw new Error('No se encontró ningún expediente asociado a ese DNI. Por favor, verifique el número e intente nuevamente.');
+                }
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detalle || 'Hubo un problema al conectar con el servidor.');
+                }
 
-async function getClientDataFromUrl() {
-    if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
-    try {
-        const response = await axios.get(driveFileUrl, { responseType: 'json' });
-        let data = response.data;
-        if (typeof data === 'string') data = JSON.parse(data);
-        return data;
-    } catch (error) {
-        throw new Error('No se pudo procesar el archivo de datos.');
-    }
-}
+                const data = await response.json();
 
-async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
-    // Si la IA está desactivada o no hay nada que traducir, devolvemos las notas originales.
-    if (!USAR_IA || !genAI || !observacionesArray || observacionesArray.length === 0) {
-        return observacionesArray;
-    }
+                if (!Array.isArray(data) || data.length === 0) {
+                    throw new Error('No se encontraron expedientes para el DNI proporcionado.');
+                }
 
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const promesasDeTraduccion = observacionesArray.map(obs => {
-            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí esta anotación en un tono activo y de compromiso, manteniendo la precisión técnica y usando lenguaje claro: "${obs.texto}"`;
-            return model.generateContent(prompt).then(result => ({ ...obs, texto: result.response.text().trim() }))
-                      .catch(err => obs); // Si una falla, devuelve la original
-        });
-        return await Promise.all(promesasDeTraduccion);
-    } catch (error) {
-        console.error("Error general al procesar con la IA:", error);
-        return observacionesArray; // Si hay un error, devolvemos las originales
-    }
-}
+                contentDiv.innerHTML = '';
 
-app.get('/api/expediente/:dni', async (req, res) => {
-    const dniBuscado = req.params.dni;
-    try {
-        const clientsData = await getClientDataFromUrl();
-        if (!Array.isArray(clientsData)) throw new Error('Los datos recibidos no son una lista.');
+                data.forEach(expediente => {
+                    const expedienteContainer = document.createElement('div');
+                    expedienteContainer.className = 'expediente-block';
 
-        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
+                    let historialHtml = '<p>No hay actuaciones para mostrar.</p>';
+                    if (expediente.observaciones && expediente.observaciones.length > 0) {
+                        // **CORRECCIÓN: Ordenamos por 'fecha' de más nueva a más vieja**
+                        const sortedObservaciones = expediente.observaciones.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 
-        if (expedientesEncontrados.length > 0) {
-            const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-            const hoy = new Date();
-            hoy.setHours(0, 0, 0, 0);
+                        historialHtml = sortedObservaciones.map(obs => {
+                            // **CORRECCIÓN: Usamos 'fecha' para mostrar la fecha de la actuación**
+                            const fecha = new Date(obs.fecha + 'T00:00:00');
+                            const fechaFormateada = fecha.toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
+                            return `<div class="history-item"><div class="history-item-date">${fechaFormateada}</div><div class="history-item-text">${obs.texto}</div></div>`;
+                        }).join('');
+                    }
 
-            for (const exp of expedientesParaCliente) {
-                // Filtramos para ocultar actuaciones futuras
-                exp.observaciones = exp.observaciones.filter(obs => {
-                    const fechaObs = new Date((obs.proximaRevision || obs.fecha) + 'T00:00:00');
-                    return fechaObs <= hoy;
+                    expedienteContainer.innerHTML = `
+                        <div class="info-grid">
+                            <div class="info-item"><h3>Cliente</h3><p>${expediente.nombre || 'No disponible'}</p></div>
+                            <div class="info-item"><h3>Carátula</h3><p>${expediente.caratula || 'No disponible'}</p></div>
+                            <div class="info-item"><h3>N° Expediente</h3><p>${expediente.expediente || 'No disponible'}</p></div>
+                            <div class="info-item"><h3>Estado</h3><p>${expediente.estado || 'No disponible'}</p></div>
+                        </div>
+                        <div class="history-section">
+                            <h2>Historial de Actuaciones</h2>
+                            <div>${historialHtml}</div>
+                        </div>
+                    `;
+                    contentDiv.appendChild(expedienteContainer);
                 });
 
-                // Pasamos las observaciones visibles a la IA (que está desactivada por ahora)
-                exp.observaciones = await traducirObservacionesConIA(exp.observaciones, exp.nombre);
+            } catch (error) {
+                statusDiv.textContent = error.message;
+                statusDiv.classList.add('error');
+                contentDiv.innerHTML = ''; // Limpiamos por si queda algo
+                contentDiv.appendChild(statusDiv);
             }
-            res.json(expedientesParaCliente);
-        } else {
-            res.status(404).json({ error: 'Expediente no encontrado' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
-    }
-});
-
-app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando en modo estable (IA desactivada)!');
-});
-
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
-});
+        });
+    </script>
+</body>
+</html>

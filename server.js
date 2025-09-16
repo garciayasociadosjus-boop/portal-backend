@@ -20,71 +20,50 @@ if (geminiApiKey) {
 app.use(cors());
 app.use(express.json());
 
-// Caché para los datos del cliente
-let cachedClientData = null;
-let lastFetchTime = 0;
-
+// FUNCIÓN SIMPLIFICADA: Siempre busca los datos en Drive.
 async function getClientDataFromUrl() {
-    const currentTime = Date.now();
-    // CORRECCIÓN: El caché ahora dura 60 segundos (60000 ms)
-    if (cachedClientData && (currentTime - lastFetchTime < 60000)) {
-        console.log("Usando datos cacheados.");
-        return cachedClientData;
-    }
-
-    console.log("Cache expirada o vacía. Obteniendo datos frescos de Drive...");
+    console.log("Obteniendo datos frescos de Drive (sin caché)...");
     if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
-
+    
     try {
         const response = await axios.get(driveFileUrl);
         let data = response.data;
         if (typeof data === 'string') data = JSON.parse(data);
-
-        cachedClientData = data;
-        lastFetchTime = currentTime;
-        console.log(`Datos cargados y cacheados. Total de clientes: ${cachedClientData.length}`);
-        return cachedClientData;
+        console.log(`Datos cargados desde Drive. Total de clientes: ${data.length}`);
+        return data;
     } catch (error) {
         console.error('Error al descargar o parsear el archivo:', error.message);
         throw new Error('No se pudo procesar el archivo de datos.');
     }
 }
 
-// MEJORA: La IA ahora procesa cada línea individualmente
 async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
-        return observacionesArray; // Devolvemos el original si no hay IA o no hay nada que traducir
+        return observacionesArray;
     }
-
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        // Creamos una "promesa" de traducción para cada observación
         const promesasDeTraduccion = observacionesArray.map(obs => {
             const prompt = `El cliente se llama ${nombreCliente}. Reescribí la siguiente anotación de su expediente judicial para que sea clara, empática y profesional, sin usar jerga legal compleja. La anotación es: "${obs.texto}"`;
             return model.generateContent(prompt).then(result => {
-                const textoTraducido = result.response.text();
-                // Devolvemos un nuevo objeto observación con el texto pulido
-                return { ...obs, texto: textoTraducido };
+                return { ...obs, texto: result.response.text() };
             }).catch(error => {
                 console.error("Error en una llamada individual a la IA:", error);
-                return obs; // Si una falla, devolvemos la original
+                return obs;
             });
         });
-
-        // Esperamos a que todas las traducciones terminen
         const observacionesTraducidas = await Promise.all(promesasDeTraduccion);
         return observacionesTraducidas;
-
     } catch (error) {
         console.error("Error al procesar con la IA:", error);
-        return observacionesArray; // Si hay un error general, devolvemos las originales
+        return observacionesArray;
     }
 }
 
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
+        // Ahora llama a la función sin caché directamente.
         const clientsData = await getClientDataFromUrl();
         if (!Array.isArray(clientsData)) throw new Error('Los datos recibidos no son una lista.');
 
@@ -92,12 +71,10 @@ app.get('/api/expediente/:dni', async (req, res) => {
 
         if (expedientesEncontrados.length > 0) {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-
             for (const exp of expedientesParaCliente) {
                 exp.observaciones = await traducirObservacionesConIA(exp.observaciones, exp.nombre);
             }
             res.json(expedientesParaCliente);
-
         } else {
             res.status(404).json({ error: 'Expediente no encontrado' });
         }
@@ -107,7 +84,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v3 (formato individual)!');
+  res.send('¡Servidor funcionando con IA v3 (sin caché)!');
 });
 
 app.listen(PORT, () => {

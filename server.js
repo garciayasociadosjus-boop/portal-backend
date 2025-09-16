@@ -14,21 +14,21 @@ if (geminiApiKey) {
     genAI = new GoogleGenerativeAI(geminiApiKey);
     console.log("Cliente de IA inicializado correctamente.");
 } else {
-    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY. La función de IA estará desactivada.");
+    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY.");
 }
 
 app.use(cors());
 app.use(express.json());
 
-// La función ahora siempre busca los datos en Drive (sin caché).
 async function getClientDataFromUrl() {
     console.log("Obteniendo datos frescos de Drive...");
     if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
-
     try {
-        const response = await axios.get(driveFileUrl);
+        const response = await axios.get(driveFileUrl, { responseType: 'json' });
         let data = response.data;
-        if (typeof data === 'string') data = JSON.parse(data);
+        if (typeof data === 'string') {
+            data = JSON.parse(data);
+        }
         return data;
     } catch (error) {
         console.error('Error al descargar o parsear el archivo:', error.message);
@@ -45,7 +45,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const promesasDeTraduccion = observacionesArray.map(obs => {
-            const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribí la siguiente anotación de su expediente judicial de forma directa, en un tono activo, de compromiso y profesional, manteniendo la precisión técnica pero usando un lenguaje claro para alguien sin conocimientos legales. NO ofrezcas opciones ni des explicaciones sobre tu redacción, solo entrega el texto final. La anotación es: "${obs.texto}"`;
+            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí la siguiente anotación en un tono activo y de compromiso, manteniendo la precisión técnica pero con un lenguaje claro. Anotación original: "${obs.texto}"`;
 
             return model.generateContent(prompt).then(result => {
                 return { ...obs, texto: result.response.text().trim() };
@@ -59,7 +59,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
 
     } catch (error) {
         console.error("Error al procesar con la IA:", error);
-        return observacionesArray; // Si hay un error general, devolvemos las originales.
+        return observacionesArray;
     }
 }
 
@@ -73,18 +73,11 @@ app.get('/api/expediente/:dni', async (req, res) => {
 
         if (expedientesEncontrados.length > 0) {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-            const hoy = new Date();
-            hoy.setHours(0, 0, 0, 0);
 
             for (const exp of expedientesParaCliente) {
-                // **MEJORA: Filtramos las observaciones para ocultar las futuras**
-                const observacionesVisibles = exp.observaciones.filter(obs => {
-                    const fechaObs = new Date((obs.proximaRevision || obs.fecha) + 'T00:00:00');
-                    return fechaObs <= hoy;
-                });
-
-                // Solo pasamos las visibles a la IA
-                exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
+                // **CORRECCIÓN CLAVE:** Nos aseguramos de que solo procesamos y enviamos las observaciones que tienen una 'fecha' real.
+                const observacionesReales = exp.observaciones.filter(o => o.fecha);
+                exp.observaciones = await traducirObservacionesConIA(observacionesReales, exp.nombre);
             }
             res.json(expedientesParaCliente);
         } else {
@@ -96,7 +89,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v5 (Final)!');
+  res.send('¡Servidor funcionando con IA v6 (Simple y Directa)!');
 });
 
 app.listen(PORT, () => {

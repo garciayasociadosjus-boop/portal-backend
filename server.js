@@ -34,36 +34,33 @@ async function getClientDataFromUrl() {
     }
 }
 
-// Esta función ahora devuelve un NUEVO ARRAY o NULL si falla
 async function traducirObservacionesConIA(observacionesArray) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
-        return null; // Si no hay IA o no hay nada que traducir, no hacemos nada
+        return null;
     }
 
     try {
-        // 1. Formateamos las notas originales para que la IA las entienda
         const historialTexto = observacionesArray
             .sort((a, b) => (b.proximaRevision || '').localeCompare(a.proximaRevision || ''))
             .map(o => `- ${o.texto}`)
             .join('\n');
 
-        // 2. Creamos el prompt (la orden) para la IA
-        const model = genAI.getGenerativeModel({ model: "gemini-pro"});
+        // --- ESTE ES EL ÚNICO CAMBIO ---
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Usamos el modelo nuevo y rápido
+
         const prompt = `Sos un asistente legal escribiendo un resumen del estado de un caso para un cliente. Tu tono debe ser profesional, claro y empático, evitando la jerga legal compleja. Reescribí las siguientes anotaciones internas de un expediente judicial en un único párrafo coherente y fácil de entender para una persona sin conocimientos legales. Aquí están las notas:\n\n${historialTexto}`;
 
-        // 3. Generamos el nuevo texto
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const textoTraducido = response.text();
 
-        // 4. Devolvemos una nueva lista de observaciones con un solo item: el resumen.
         return [{ 
             texto: textoTraducido, 
             proximaRevision: new Date().toISOString().split('T')[0] 
         }];
     } catch (error) {
         console.error("Error al contactar la IA:", error);
-        return null; // Si la IA falla, devolvemos null
+        return null;
     }
 }
 
@@ -76,16 +73,13 @@ app.get('/api/expediente/:dni', async (req, res) => {
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
 
         if (expedientesEncontrados.length > 0) {
-            // Hacemos una copia para no modificar los datos originales
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
 
             for (const exp of expedientesParaCliente) {
                 const observacionesTraducidas = await traducirObservacionesConIA(exp.observaciones);
                 if (observacionesTraducidas) {
-                    // Si la IA funcionó, reemplazamos las observaciones por la versión traducida
                     exp.observaciones = observacionesTraducidas;
                 }
-                // Si la IA falló (y devolvió null), no hacemos nada y se envían las originales
             }
             res.json(expedientesParaCliente);
 
@@ -98,7 +92,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA a prueba de fallos!');
+  res.send('¡Servidor funcionando con IA v2 (modelo corregido)!');
 });
 
 app.listen(PORT, () => {

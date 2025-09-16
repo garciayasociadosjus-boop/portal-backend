@@ -20,16 +20,15 @@ if (geminiApiKey) {
 app.use(cors());
 app.use(express.json());
 
-// FUNCIÓN SIMPLIFICADA: Siempre busca los datos en Drive.
+// La función ahora siempre busca los datos en Drive (sin caché).
 async function getClientDataFromUrl() {
-    console.log("Obteniendo datos frescos de Drive (sin caché)...");
+    console.log("Obteniendo datos frescos de Drive...");
     if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
-    
+
     try {
         const response = await axios.get(driveFileUrl);
         let data = response.data;
         if (typeof data === 'string') data = JSON.parse(data);
-        console.log(`Datos cargados desde Drive. Total de clientes: ${data.length}`);
         return data;
     } catch (error) {
         console.error('Error al descargar o parsear el archivo:', error.message);
@@ -41,29 +40,32 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
         return observacionesArray;
     }
+
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
         const promesasDeTraduccion = observacionesArray.map(obs => {
-            const prompt = `El cliente se llama ${nombreCliente}. Reescribí la siguiente anotación de su expediente judicial para que sea clara, empática y profesional, sin usar jerga legal compleja. La anotación es: "${obs.texto}"`;
+            const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribí la siguiente anotación de su expediente judicial de forma directa, en un tono activo, de compromiso y profesional, manteniendo la precisión técnica pero usando un lenguaje claro para alguien sin conocimientos legales. NO ofrezcas opciones ni des explicaciones sobre tu redacción, solo entrega el texto final. La anotación es: "${obs.texto}"`;
+
             return model.generateContent(prompt).then(result => {
-                return { ...obs, texto: result.response.text() };
+                return { ...obs, texto: result.response.text().trim() };
             }).catch(error => {
                 console.error("Error en una llamada individual a la IA:", error);
-                return obs;
+                return obs; // Si una falla, devolvemos la original.
             });
         });
-        const observacionesTraducidas = await Promise.all(promesasDeTraduccion);
-        return observacionesTraducidas;
+
+        return await Promise.all(promesasDeTraduccion);
+
     } catch (error) {
         console.error("Error al procesar con la IA:", error);
-        return observacionesArray;
+        return observacionesArray; // Si hay un error general, devolvemos las originales.
     }
 }
 
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
-        // Ahora llama a la función sin caché directamente.
         const clientsData = await getClientDataFromUrl();
         if (!Array.isArray(clientsData)) throw new Error('Los datos recibidos no son una lista.');
 
@@ -71,8 +73,18 @@ app.get('/api/expediente/:dni', async (req, res) => {
 
         if (expedientesEncontrados.length > 0) {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
+            const hoy = new Date();
+            hoy.setHours(0, 0, 0, 0);
+
             for (const exp of expedientesParaCliente) {
-                exp.observaciones = await traducirObservacionesConIA(exp.observaciones, exp.nombre);
+                // **MEJORA: Filtramos las observaciones para ocultar las futuras**
+                const observacionesVisibles = exp.observaciones.filter(obs => {
+                    const fechaObs = new Date((obs.proximaRevision || obs.fecha) + 'T00:00:00');
+                    return fechaObs <= hoy;
+                });
+
+                // Solo pasamos las visibles a la IA
+                exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
             }
             res.json(expedientesParaCliente);
         } else {
@@ -84,7 +96,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v3 (sin caché)!');
+  res.send('¡Servidor funcionando con IA v5 (Final)!');
 });
 
 app.listen(PORT, () => {

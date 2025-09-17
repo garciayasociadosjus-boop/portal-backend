@@ -64,21 +64,24 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
             return `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`;
         }).join('\n---\n');
 
-        // **NUEVO PROMPT MEJORADO CON GLOSARIO Y REGLA DE HONORARIOS**
+        // **NUEVO PROMPT MEJORADO CON GLOSARIO**
         const prompt = `
             Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
             Tu tarea es reescribir CADA una de las siguientes anotaciones de su expediente para que sean claras, empáticas y profesionales, usando un lenguaje sencillo pero manteniendo la precisión técnica.
-
-            **REGLA DE ORO (MUY IMPORTANTE):**
-            Si una "ANOTACION ORIGINAL" contiene las palabras "honorarios", "abonos", "pago" o "deuda", tu respuesta para ESA anotación específica debe ser SIEMPRE: "Para conversar sobre los detalles económicos, formas de pago o temas de honorarios, le pedimos por favor que se ponga en contacto directamente con la Dra. García a través de nuestros canales de comunicación. Estaremos encantados de asistirlo." No des más detalles. Para el resto de las anotaciones que no traten sobre dinero, sigue las instrucciones de reescritura.
-
-            Para entender el contexto del resto de los términos, utiliza el siguiente glosario:
+            Para entender el contexto, utiliza el siguiente glosario de términos jurídicos:
             --- GLOSARIO ---
             - SCVA: Es el portal online de la Suprema Corte de Justicia donde se gestionan los expedientes.
             - Expediente a despacho: Significa que el juez o un funcionario está trabajando activamente en el caso para emitir una resolución.
             - Oficio: Es una comunicación oficial escrita que se envía para solicitar información.
             - Proveído: Es la respuesta o decisión del juez a un pedido realizado.
             - Mediación: Es una reunión con un mediador para intentar llegar a un acuerdo antes de un juicio.
+            - Acta de audiencia: Documento que registra lo sucedido en una audiencia.
+            - Apercibimiento: Advertencia del juez sobre las consecuencias de no cumplir una orden.
+            - Carta documento: Notificación postal con valor probatorio.
+            - Cédula de notificación: Documento oficial para comunicar resoluciones judiciales.
+            - Contestación de demanda: Escrito donde la parte demandada responde a la acusación.
+            - Embargo: Medida para inmovilizar bienes y asegurar el pago de una deuda.
+            - Homologación: Acto por el cual un juez da validez de sentencia a un acuerdo privado.
             --- FIN GLOSARIO ---
 
             A continuación, las anotaciones a procesar:
@@ -134,7 +137,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v13 (Glosario y Reglas)!');
+  res.send('¡Servidor funcionando con IA v12 (Glosario)!');
 });
 
 app.listen(PORT, () => {

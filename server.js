@@ -6,7 +6,10 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const driveFileUrl = process.env.DRIVE_FILE_URL;
+// AHORA TENEMOS LAS DOS URLs
+const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
+const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
+
 const geminiApiKey = process.env.GEMINI_API_KEY;
 
 let genAI;
@@ -20,18 +23,60 @@ if (geminiApiKey) {
 app.use(cors());
 app.use(express.json());
 
-async function getClientDataFromUrl() {
-    if (!driveFileUrl) throw new Error('La URL del archivo de Drive no está configurada.');
+// NUEVA FUNCIÓN MEJORADA PARA LEER Y COMBINAR AMBOS ARCHIVOS
+async function getAllClientData() {
+    console.log("Obteniendo datos frescos de ambos archivos de Drive...");
+    
+    const promesasDeDescarga = [];
+
+    // Preparamos la descarga del primer archivo (Familia)
+    if (driveFileUrlFamilia) {
+        promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }));
+    }
+
+    // Preparamos la descarga del segundo archivo (Siniestros)
+    if (driveFileUrlSiniestros) {
+        promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }));
+    }
+
+    if (promesasDeDescarga.length === 0) {
+        throw new Error('No hay URLs de archivos de Drive configuradas.');
+    }
+
     try {
-        const response = await axios.get(driveFileUrl, { responseType: 'json' });
-        let data = response.data;
-        if (typeof data === 'string') data = JSON.parse(data);
-        return data;
+        const respuestas = await Promise.all(promesasDeDescarga.map(p => p.catch(e => e))); // Evita que una descarga fallida detenga todo
+        
+        let datosCombinados = [];
+        respuestas.forEach(response => {
+            if (response.status !== 200) { // Si hubo un error en esta descarga, lo saltamos
+                console.error("Error al descargar uno de los archivos, será omitido:", response.message);
+                return;
+            }
+
+            let data = response.data;
+            if (typeof data === 'string') {
+                data = JSON.parse(data);
+            }
+
+            // Normalizamos los datos para que todos tengan un campo "nombre" y "caratula"
+            const datosNormalizados = data.map(item => {
+                if (item.cliente && !item.nombre) item.nombre = item.cliente; // Copiamos 'cliente' a 'nombre'
+                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`; // Creamos una carátula para siniestros
+                return item;
+            });
+
+            datosCombinados = [...datosCombinados, ...datosNormalizados];
+        });
+
+        console.log(`Datos combinados cargados. Total de casos: ${datosCombinados.length}`);
+        return datosCombinados;
+
     } catch (error) {
-        console.error('Error al descargar o parsear el archivo:', error.message);
-        throw new Error('No se pudo procesar el archivo de datos.');
+        console.error('Error al procesar los archivos:', error.message);
+        throw new Error('No se pudo procesar uno de los archivos de datos.');
     }
 }
+
 
 async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
@@ -60,7 +105,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
 
         const result = await model.generateContent(prompt);
         const textoRespuesta = result.response.text().trim();
-
+        
         const textoJsonLimpio = textoRespuesta.replace(/```json/g, '').replace(/```/g, '');
         const observacionesTraducidas = JSON.parse(textoJsonLimpio);
 
@@ -79,7 +124,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
-        const clientsData = await getClientDataFromUrl();
+        const clientsData = await getAllClientData(); // Usamos la nueva función
         if (!Array.isArray(clientsData)) throw new Error('Los datos recibidos no son una lista.');
 
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
@@ -103,7 +148,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v11 (Final y Optimizado)!');
+  res.send('¡Servidor funcionando con múltiples archivos y IA!');
 });
 
 app.listen(PORT, () => {

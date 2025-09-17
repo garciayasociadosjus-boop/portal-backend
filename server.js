@@ -11,17 +11,11 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 
 let genAI;
-// **CORRECCIÓN: Se vuelve a agregar el control de errores al inicio**
 if (geminiApiKey) {
-    try {
-        genAI = new GoogleGenerativeAI(geminiApiKey);
-        console.log("Cliente de IA inicializado correctamente.");
-    } catch (error) {
-        console.error("Error al inicializar el cliente de IA. La IA estará desactivada.", error);
-        genAI = null;
-    }
+    genAI = new GoogleGenerativeAI(geminiApiKey);
+    console.log("Cliente de IA inicializado correctamente.");
 } else {
-    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY en Render. La IA estará desactivada.");
+    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY. La IA estará desactivada.");
 }
 
 app.use(cors());
@@ -38,7 +32,10 @@ async function getAllClientData() {
         const respuestas = await Promise.all(promesasDeDescarga.map(p => p.catch(e => e)));
         let datosCombinados = [];
         respuestas.forEach(response => {
-            if (response.status !== 200) return;
+            if (response.status !== 200) {
+                console.error("Error al descargar uno de los archivos, será omitido:", response.message);
+                return;
+            }
             let data = response.data;
             if (typeof data === 'string') data = JSON.parse(data);
             
@@ -55,19 +52,60 @@ async function getAllClientData() {
     }
 }
 
-async function traducirObservacionesConIA(observacionesArray, nombreCliente, promptAdicional) {
+async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
         return observacionesArray;
     }
+
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const promesasDeTraduccion = observacionesArray.map(obs => {
-            // El prompt se construye aquí, pero la lógica de mejora la vemos después
-            const prompt = `Para el expediente del cliente ${nombreCliente}, reescribí la siguiente anotación en un tono activo y de compromiso, manteniendo la precisión técnica pero con un lenguaje claro. Anotación original: "${obs.texto}"`;
-            return model.generateContent(prompt).then(result => ({ ...obs, texto: result.response.text().trim() })).catch(err => obs);
-        });
-        return await Promise.all(promesasDeTraduccion);
+        
+        const historialParaIA = observacionesArray.map(obs => {
+            return `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`;
+        }).join('\n---\n');
+
+        // **NUEVO PROMPT MEJORADO CON GLOSARIO**
+        const prompt = `
+            Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
+            Tu tarea es reescribir CADA una de las siguientes anotaciones de su expediente para que sean claras, empáticas y profesionales, usando un lenguaje sencillo pero manteniendo la precisión técnica.
+            Para entender el contexto, utiliza el siguiente glosario de términos jurídicos:
+            --- GLOSARIO ---
+            - SCVA: Es el portal online de la Suprema Corte de Justicia donde se gestionan los expedientes.
+            - Expediente a despacho: Significa que el juez o un funcionario está trabajando activamente en el caso para emitir una resolución.
+            - Oficio: Es una comunicación oficial escrita que se envía para solicitar información.
+            - Proveído: Es la respuesta o decisión del juez a un pedido realizado.
+            - Mediación: Es una reunión con un mediador para intentar llegar a un acuerdo antes de un juicio.
+            - Acta de audiencia: Documento que registra lo sucedido en una audiencia.
+            - Apercibimiento: Advertencia del juez sobre las consecuencias de no cumplir una orden.
+            - Carta documento: Notificación postal con valor probatorio.
+            - Cédula de notificación: Documento oficial para comunicar resoluciones judiciales.
+            - Contestación de demanda: Escrito donde la parte demandada responde a la acusación.
+            - Embargo: Medida para inmovilizar bienes y asegurar el pago de una deuda.
+            - Homologación: Acto por el cual un juez da validez de sentencia a un acuerdo privado.
+            --- FIN GLOSARIO ---
+
+            A continuación, las anotaciones a procesar:
+            ---
+            ${historialParaIA}
+            ---
+
+            Debes devolver tu respuesta EXCLUSIVAMENTE como un array de objetos JSON válido. Cada objeto debe tener dos claves: "fecha" y "texto". Mantené la fecha original de cada anotación. No agregues comentarios, explicaciones, ni texto introductorio. Solo el array JSON.
+        `;
+
+        const result = await model.generateContent(prompt);
+        const textoRespuesta = result.response.text().trim();
+        
+        const textoJsonLimpio = textoRespuesta.replace(/```json/g, '').replace(/```/g, '');
+        const observacionesTraducidas = JSON.parse(textoJsonLimpio);
+
+        if(Array.isArray(observacionesTraducidas)) {
+            return observacionesTraducidas;
+        } else {
+            return observacionesArray;
+        }
+
     } catch (error) {
+        console.error("Error al procesar con la IA:", error);
         return observacionesArray;
     }
 }
@@ -76,21 +114,16 @@ app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
         const clientsData = await getAllClientData();
+        if (!Array.isArray(clientsData)) throw new Error('Los datos recibidos no son una lista.');
+
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
 
         if (expedientesEncontrados.length > 0) {
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
             
             for (const exp of expedientesParaCliente) {
-                if (exp.observaciones && Array.isArray(exp.observaciones)) {
-                    const hoy = new Date();
-                    hoy.setHours(0, 0, 0, 0);
-                    const observacionesVisibles = exp.observaciones.filter(obs => {
-                        if (!obs.fecha || obs.texto.trim().startsWith('//')) return false;
-                        const fechaObs = new Date(obs.fecha + 'T00:00:00');
-                        return fechaObs <= hoy;
-                    });
-                    
+                 if (exp.observaciones && Array.isArray(exp.observaciones)) {
+                    const observacionesVisibles = exp.observaciones.filter(o => o.fecha && !o.texto.trim().startsWith('//'));
                     exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
                 }
             }
@@ -104,7 +137,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con filtro de privacidad y a prueba de fallos!');
+  res.send('¡Servidor funcionando con IA v12 (Glosario)!');
 });
 
 app.listen(PORT, () => {

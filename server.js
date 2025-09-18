@@ -64,13 +64,15 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
             return `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`;
         }).join('\n---\n');
 
-        // **NUEVO PROMPT MEJORADO CON GLOSARIO**
+        // **PROMPT CORREGIDO SOLO CON EL GLOSARIO ACTUALIZADO**
         const prompt = `
             Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
             Tu tarea es reescribir CADA una de las siguientes anotaciones de su expediente para que sean claras, empáticas y profesionales, usando un lenguaje sencillo pero manteniendo la precisión técnica.
+
             Para entender el contexto, utiliza el siguiente glosario de términos jurídicos:
             --- GLOSARIO ---
-            - SCVA: Es el portal online de la Suprema Corte de Justicia donde se gestionan los expedientes.
+            - SCBA: Significa 'Suprema Corte de Justicia de la Provincia de Buenos Aires'. Es el portal que se utiliza para enviar escritos y recibir notificaciones.
+            - MEV: Significa 'Mesa de Entradas Virtual'. Es la plataforma donde se hace el seguimiento del expediente.
             - Expediente a despacho: Significa que el juez o un funcionario está trabajando activamente en el caso para emitir una resolución.
             - Oficio: Es una comunicación oficial escrita que se envía para solicitar información.
             - Proveído: Es la respuesta o decisión del juez a un pedido realizado.
@@ -98,7 +100,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         const textoJsonLimpio = textoRespuesta.replace(/```json/g, '').replace(/```/g, '');
         const observacionesTraducidas = JSON.parse(textoJsonLimpio);
 
-        if(Array.isArray(observacionesTraducidas)) {
+        if(Array.isArray(observacionesTraducidas) && observacionesTraducidas.length === observacionesArray.length) {
             return observacionesTraducidas;
         } else {
             return observacionesArray;
@@ -137,7 +139,7 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v12 (Glosario)!');
+  res.send('¡Servidor funcionando con IA v12 (Glosario Corregido)!');
 });
 
 app.listen(PORT, () => {

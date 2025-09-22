@@ -6,55 +6,26 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// --- NO CAMBIAN ---
-const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
-const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
-const geminiApiKey = process.env.GEMINI_API_KEY;
+// --- Clave API insertada directamente ---
+const geminiApiKey = "AIzaSyDk-brL7jGmrojXhNwbdv7uL4ZWZQwXNVo";
+// -----------------------------------------
 
 let genAI;
-if (geminiApiKey) {
+if (geminiApiKey && geminiApiKey !== "AQUÍ_PEGA_TU_CLAVE_API") {
     genAI = new GoogleGenerativeAI(geminiApiKey);
-    console.log("Cliente de IA inicializado correctamente.");
+    console.log("✅ Cliente de IA inicializado correctamente.");
 } else {
-    console.log("ADVERTENCIA: No se encontró la GEMINI_API_KEY. La IA estará desactivada.");
+    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY. La IA estará desactivada.");
 }
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Aumentamos el límite por si se envían datos extensos
+app.use(express.json({ limit: '10mb' }));
 
-// --- ESTA FUNCIÓN NO CAMBIA ---
+// Como no estamos usando las URLs de Drive, esta función puede quedar así por ahora.
 async function getAllClientData() {
-    const promesasDeDescarga = [];
-    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }));
-    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }));
-
-    if (promesasDeDescarga.length === 0) throw new Error('No hay URLs de archivos de Drive configuradas.');
-
-    try {
-        const respuestas = await Promise.all(promesasDeDescarga.map(p => p.catch(e => e)));
-        let datosCombinados = [];
-        respuestas.forEach(response => {
-            if (response.status !== 200) {
-                console.error("Error al descargar uno de los archivos, será omitido:", response.message);
-                return;
-            }
-            let data = response.data;
-            if (typeof data === 'string') data = JSON.parse(data);
-            
-            const datosNormalizados = data.map(item => {
-                if (item.cliente && !item.nombre) item.nombre = item.cliente;
-                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
-                return item;
-            });
-            datosCombinados = [...datosCombinados, ...datosNormalizados];
-        });
-        return datosCombinados;
-    } catch (error) {
-        throw new Error('No se pudo procesar uno de los archivos de datos.');
-    }
+    return [];
 }
 
-// --- ESTA FUNCIÓN NO CAMBIA ---
 async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     if (!genAI || !observacionesArray || observacionesArray.length === 0) {
         return observacionesArray;
@@ -70,29 +41,17 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         const prompt = `
             Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}.
             Tu tarea es reescribir CADA una de las siguientes anotaciones de su expediente para que sean claras, empáticas y profesionales, usando un lenguaje sencillo pero manteniendo la precisión técnica.
-
-            Para entender el contexto, utiliza el siguiente glosario de términos jurídicos:
             --- GLOSARIO ---
-            - SCBA: Significa 'Suprema Corte de Justicia de la Provincia de Buenos Aires'. Es el portal que se utiliza para enviar escritos y recibir notificaciones.
-            - MEV: Significa 'Mesa de Entradas Virtual'. Es la plataforma donde se hace el seguimiento del expediente.
+            - SCBA: Significa 'Suprema Corte de Justicia de la Provincia de Buenos Aires'.
+            - MEV: Significa 'Mesa de Entradas Virtual'.
             - Expediente a despacho: Significa que el juez o un funcionario está trabajando activamente en el caso para emitir una resolución.
             - Oficio: Es una comunicación oficial escrita que se envía para solicitar información.
             - Proveído: Es la respuesta o decisión del juez a un pedido realizado.
-            - Mediación: Es una reunión con un mediador para intentar llegar a un acuerdo antes de un juicio.
-            - Acta de audiencia: Documento que registra lo sucedido en una audiencia.
-            - Apercibimiento: Advertencia del juez sobre las consecuencias de no cumplir una orden.
-            - Carta documento: Notificación postal con valor probatorio.
-            - Cédula de notificación: Documento oficial para comunicar resoluciones judiciales.
-            - Contestación de demanda: Escrito donde la parte demandada responde a la acusación.
-            - Embargo: Medida para inmovilizar bienes y asegurar el pago de una deuda.
-            - Homologación: Acto por el cual un juez da validez de sentencia a un acuerdo privado.
             --- FIN GLOSARIO ---
-
             A continuación, las anotaciones a procesar:
             ---
             ${historialParaIA}
             ---
-
             Debes devolver tu respuesta EXCLUSIVAMENTE como un array de objetos JSON válido. Cada objeto debe tener dos claves: "fecha" y "texto". Mantené la fecha original de cada anotación. No agregues comentarios, explicaciones, ni texto introductorio. Solo el array JSON.
         `;
 
@@ -114,14 +73,12 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
     }
 }
 
-// --- **NUEVA FUNCIÓN PARA GENERAR LA CARTA** ---
 async function generarCartaConIA(data) {
     if (!genAI) {
         throw new Error("El cliente de IA no está inicializado.");
     }
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // Función para convertir número a letras (simple, para el prompt)
     const numeroALetras = (num) => `PESOS ${new Intl.NumberFormat('es-AR').format(num)}`;
     const montoEnLetras = numeroALetras(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
@@ -205,10 +162,6 @@ async function generarCartaConIA(data) {
     return result.response.text().trim();
 }
 
-
-// --- ENDPOINTS DE LA API ---
-
-// --- **NUEVO ENDPOINT PARA LA CARTA** ---
 app.post('/api/generar-carta', async (req, res) => {
     try {
         const cartaGenerada = await generarCartaConIA(req.body);
@@ -220,7 +173,6 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
-// --- ESTE ENDPOINT NO CAMBIA ---
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
@@ -248,9 +200,9 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡Servidor funcionando con IA v13 (Generador de Cartas ACTIVO)!');
+  res.send('¡Servidor funcionando!');
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+  console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
 });

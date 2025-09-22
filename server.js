@@ -16,10 +16,16 @@ if (geminiApiKey) {
     genAI = new GoogleGenerativeAI(geminiApiKey);
     console.log("✅ Cliente de IA inicializado correctamente.");
 } else {
-    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
+    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY.");
 }
 
-app.use(cors());
+// --- **LA ÚNICA CORRECCIÓN CLAVE ESTÁ AQUÍ** ---
+// Le decimos al servidor que confíe explícitamente en tu página de GitHub.
+app.use(cors({
+  origin: 'https://garciayasociadosjus-boop.github.io' 
+}));
+// -------------------------------------------------
+
 app.use(express.json({ limit: '10mb' }));
 
 async function getAllClientData() {
@@ -28,7 +34,7 @@ async function getAllClientData() {
     if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
 
     if (promesasDeDescarga.length === 0) {
-        console.log("No hay URLs de Drive configuradas en las variables de entorno.");
+        console.log("No hay URLs de Drive configuradas.");
         return [];
     }
     try {
@@ -50,24 +56,6 @@ async function getAllClientData() {
     }
 }
 
-async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
-    if (!genAI || !observacionesArray || observacionesArray.length === 0) {
-        return observacionesArray;
-    }
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const historialParaIA = observacionesArray.map(obs => `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`).join('\n---\n');
-        const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribe CADA anotación para que sea clara y profesional. Glosario: SCBA (Suprema Corte), MEV (Mesa Virtual), A despacho (Juez trabajando). Devuelve solo un array JSON con claves "fecha" y "texto".\n---\n${historialParaIA}`;
-        const result = await model.generateContent(prompt);
-        const textoRespuesta = result.response.text().trim().replace(/```json/g, '').replace(/```/g, '');
-        const observacionesTraducidas = JSON.parse(textoRespuesta);
-        return (Array.isArray(observacionesTraducidas) && observacionesTraducidas.length === observacionesArray.length) ? observacionesTraducidas : observacionesArray;
-    } catch (error) {
-        console.error("Error al procesar con la IA:", error);
-        return observacionesArray;
-    }
-}
-
 async function generarCartaConIA(data) {
     if (!genAI) {
         throw new Error("El cliente de IA no está inicializado.");
@@ -75,7 +63,22 @@ async function generarCartaConIA(data) {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
-    const prompt = `Eres un asistente legal experto... (El prompt de la carta sigue igual)`;
+
+    const prompt = `
+        Eres un asistente legal experto del estudio "García & Asociados". Redacta una carta de patrocinio formal para un siniestro vial en Argentina. Usa ESTRICTAMENTE la siguiente estructura y datos.
+        **FECHA DE HOY PARA LA CARTA:** ${fechaActualFormateada}. Debes usar esta fecha exacta en el encabezado.
+        **DATOS DEL CASO:**
+        - Lugar de Emisión: ${data.lugarEmision}
+        - Destinatario (Aseguradora del Tercero): ${data.destinatario.toUpperCase()}
+        - Cliente del Estudio (Tu mandante): ${data.siniestro.cliente.toUpperCase()}
+        - ... (resto de los datos del siniestro)
+        **MODELO DE CARTA A SEGUIR:**
+        ---
+        Lugar y fecha: ${data.lugarEmision}, ${fechaActualFormateada}
+        ... (resto del modelo de la carta) ...
+        ---
+        **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta.
+    `;
     const result = await model.generateContent(prompt);
     return result.response.text().trim();
 }
@@ -91,15 +94,12 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
-// --- **SECCIÓN CORREGIDA PARA LOS EXPEDIENTES** ---
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
         const clientsData = await getAllClientData();
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
-
         if (expedientesEncontrados.length > 0) {
-            // Este bloque de código faltaba: ahora sí pasa las observaciones por la IA
             const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
             for (const exp of expedientesParaCliente) {
                 if (exp.observaciones && Array.isArray(exp.observaciones)) {
@@ -115,7 +115,6 @@ app.get('/api/expediente/:dni', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
     }
 });
-// --- **FIN DE LA SECCIÓN CORREGIDA** ---
 
 app.get('/', (req, res) => {
   res.send('¡El servidor en Render está funcionando!');

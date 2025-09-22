@@ -21,6 +21,50 @@ if (geminiApiKey) {
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Aumentamos el límite para los datos de la carta
 
+async function getAllClientData() {
+    const promesasDeDescarga = [];
+    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }));
+    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }));
+    if (promesasDeDescarga.length === 0) throw new Error('No hay URLs de archivos de Drive configuradas.');
+    try {
+        const respuestas = await Promise.all(promesasDeDescarga.map(p => p.catch(e => e)));
+        let datosCombinados = [];
+        respuestas.forEach(response => {
+            if (response.status !== 200) return;
+            let data = response.data;
+            if (typeof data === 'string') data = JSON.parse(data);
+            const datosNormalizados = data.map(item => {
+                if (item.cliente && !item.nombre) item.nombre = item.cliente;
+                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
+                return item;
+            });
+            datosCombinados = [...datosCombinados, ...datosNormalizados];
+        });
+        return datosCombinados;
+    } catch (error) {
+        throw new Error('No se pudo procesar uno de los archivos de datos.');
+    }
+}
+
+
+// --- LÓGICA EXISTENTE PARA EL PORTAL DE EXPEDIENTES ---
+app.get('/api/expediente/:dni', async (req, res) => {
+    const dniBuscado = req.params.dni;
+    try {
+        const clientsData = await getAllClientData();
+        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
+        if (expedientesEncontrados.length > 0) {
+            // Aquí se podría agregar la lógica de IA para observaciones si se quisiera en el futuro
+            res.json(expedientesEncontrados);
+        } else {
+            res.status(404).json({ error: 'Expediente no encontrado' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
+    }
+});
+
+
 // --- **NUEVO ENDPOINT PARA GENERAR LA CARTA DE PATROCINIO** ---
 app.post('/api/generar-carta', async (req, res) => {
     if (!genAI) {
@@ -89,11 +133,6 @@ app.post('/api/generar-carta', async (req, res) => {
         console.error("Error al generar la carta con la IA:", error);
         res.status(500).json({ error: "No se pudo generar la carta." });
     }
-});
-
-// --- Lógica para el portal de expedientes (SIN CAMBIOS) ---
-app.get('/api/expediente/:dni', async (req, res) => {
-    // ... este código no se toca ...
 });
 
 app.get('/', (req, res) => {

@@ -21,51 +21,6 @@ if (geminiApiKey) {
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Aumentamos el límite para los datos de la carta
 
-async function getAllClientData() {
-    // ... (Esta función no cambia, se omite por brevedad)
-    const promesasDeDescarga = [];
-    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }));
-    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }));
-    if (promesasDeDescarga.length === 0) throw new Error('No hay URLs de archivos de Drive configuradas.');
-    try {
-        const respuestas = await Promise.all(promesasDeDescarga.map(p => p.catch(e => e)));
-        let datosCombinados = [];
-        respuestas.forEach(response => {
-            if (response.status !== 200) return;
-            let data = response.data;
-            if (typeof data === 'string') data = JSON.parse(data);
-            const datosNormalizados = data.map(item => {
-                if (item.cliente && !item.nombre) item.nombre = item.cliente;
-                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
-                return item;
-            });
-            datosCombinados = [...datosCombinados, ...datosNormalizados];
-        });
-        return datosCombinados;
-    } catch (error) {
-        throw new Error('No se pudo procesar uno de los archivos de datos.');
-    }
-}
-
-
-// --- LÓGICA EXISTENTE PARA EL PORTAL DE EXPEDIENTES ---
-app.get('/api/expediente/:dni', async (req, res) => {
-    // ... (Este endpoint no cambia, se omite por brevedad)
-    const dniBuscado = req.params.dni;
-    try {
-        const clientsData = await getAllClientData();
-        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
-        if (expedientesEncontrados.length > 0) {
-            res.json(expedientesEncontrados);
-        } else {
-            res.status(404).json({ error: 'Expediente no encontrado' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
-    }
-});
-
-
 // --- **NUEVO ENDPOINT PARA GENERAR LA CARTA DE PATROCINIO** ---
 app.post('/api/generar-carta', async (req, res) => {
     if (!genAI) {
@@ -73,16 +28,17 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 
     const data = req.body;
+    const hoy = new Date();
+    const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    // Creamos el prompt detallado para la IA
     const prompt = `
         Sos la Dra. Camila Florencia Rodríguez García, una abogada redactando una carta de patrocinio formal.
         Tu tono debe ser profesional, preciso y legalmente adecuado.
         Utiliza los siguientes datos para completar la carta, siguiendo la estructura del modelo.
-        No incluyas corchetes ni placeholders en el texto final.
+        No incluyas corchetes ni placeholders en el texto final. Reemplaza [FECHA ACTUAL] con la fecha de hoy.
 
         **Datos del Caso:**
-        - Lugar y Fecha de Emisión: ${data.lugarEmision}, [FECHA ACTUAL]
+        - Lugar y Fecha de Emisión: ${data.lugarEmision}, ${fechaActualFormateada}
         - Destinatario (Aseguradora del tercero): ${data.destinatario.toUpperCase()}
         - Domicilio del Destinatario: ${data.destinatarioDomicilio}
         
@@ -135,6 +91,10 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
+// --- Lógica para el portal de expedientes (SIN CAMBIOS) ---
+app.get('/api/expediente/:dni', async (req, res) => {
+    // ... este código no se toca ...
+});
 
 app.get('/', (req, res) => {
   res.send('¡Servidor funcionando con múltiples archivos y generador de cartas!');

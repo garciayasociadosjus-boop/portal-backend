@@ -86,7 +86,7 @@ async function generarCartaConIA(data) {
     if (!genAI) {
         throw new Error("El cliente de IA no está inicializado.");
     }
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // CORREGIDO
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);

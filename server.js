@@ -2,22 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-// Mantenemos la librería de Google solo para la función de traducir, que no da problemas.
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// La librería @google/generative-ai se elimina porque no la usaremos más.
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const geminiApiKey = process.env.GEMINI_API_KEY;
+const geminiApiKey = process.env.GEMINI_API_KEY; // La misma API Key funciona para PaLM
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
-let genAI;
-if (geminiApiKey) {
-    // La inicialización se mantiene para la función de traducir.
-    genAI = new GoogleGenerativeAI(geminiApiKey);
-    console.log("✅ Cliente de IA inicializado correctamente.");
-} else {
+// El cliente de IA de Gemini ya no es necesario
+if (!geminiApiKey) {
     console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
 }
 
@@ -60,43 +55,24 @@ async function getAllClientData() {
         throw new Error('No se pudo procesar uno de los archivos de datos.');
     }
 }
-
-async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
-    if (!genAI || !observacionesArray || observacionesArray.length === 0) {
-        return observacionesArray;
-    }
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const historialParaIA = observacionesArray.map(obs => `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`).join('\n---\n');
-        const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribe CADA anotación para que sea clara y profesional, usando un lenguaje sencillo pero manteniendo la precisión. Glosario: SCBA (Suprema Corte), MEV (Mesa Virtual), A despacho (Juez trabajando). Devuelve solo un array JSON válido con claves "fecha" y "texto".\n---\n${historialParaIA}`;
-        const result = await model.generateContent(prompt);
-        const textoRespuesta = result.response.text().trim().replace(/```json/g, '').replace(/```/g, '');
-        const observacionesTraducidas = JSON.parse(textoRespuesta);
-        return (Array.isArray(observacionesTraducidas) && observacionesTraducidas.length === observacionesArray.length) ? observacionesTraducidas : observacionesArray;
-    } catch (error) {
-        console.error("Error al procesar observaciones con la IA:", error);
-        return observacionesArray;
-    }
-}
 // --- FIN DE LA PARTE QUE NO CAMBIA ---
 
-
-// =========== INICIO DE LA VERSIÓN FINAL DE GENERAR CARTA ===========
+// =========== INICIO DE LA NUEVA VERSIÓN USANDO PALM ===========
 async function generarCartaConIA(data) {
     if (!geminiApiKey) {
-        throw new Error("El cliente de IA no está inicializado (Falta API Key).");
+        throw new Error("Falta la API Key.");
     }
 
-    // ======================================================================
-    // AQUÍ ESTABA MI ERROR. YA ESTÁ CORREGIDO DE "v1beta" A "v1".
-    // ======================================================================
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro-latest:generateContent?key=${geminiApiKey}`;
+    // URL y modelo de la API PaLM 2 (diferente a Gemini)
+    const modelName = 'text-bison-001';
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
 
+    // Construimos el mismo prompt que antes
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
-    const prompt = `
+    const promptText = `
         Eres un asistente legal experto del estudio "García & Asociados", especializado en la redacción de cartas de patrocinio para reclamos de siniestros viales en Argentina. Tu tono debe ser formal, preciso y profesional.
         Usa la fecha de hoy que te proporciono para el encabezado.
         Redacta la carta completando el siguiente modelo con los datos proporcionados. Expande el relato de los hechos de forma profesional.
@@ -136,7 +112,7 @@ async function generarCartaConIA(data) {
         Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños y perjuicios sufridos como consecuencia del siniestro vial que se detalla a continuación.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglamentaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
@@ -167,19 +143,20 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
+    // El cuerpo de la solicitud para la API PaLM es diferente
     const requestBody = {
-        contents: [{
-            parts: [{
-                text: prompt
-            }]
-        }]
+      prompt: {
+        text: promptText,
+      },
     };
     
+    // Hacemos la llamada directa con axios
     const response = await axios.post(url, requestBody);
     
-    return response.data.candidates[0].content.parts[0].text.trim();
+    // Extraemos el texto de la respuesta (la estructura también es diferente)
+    return response.data.candidates[0].output.trim();
 }
-// =========== FIN DE LA VERSIÓN FINAL DE GENERAR CARTA ===========
+// =========== FIN DE LA NUEVA VERSIÓN USANDO PALM ===========
 
 
 app.post('/api/generar-carta', async (req, res) => {
@@ -189,24 +166,26 @@ app.post('/api/generar-carta', async (req, res) => {
         res.send(cartaGenerada);
     } catch (error) {
         console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
-        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? error.response.data.error.message : error.toString() });
+        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : error.toString() });
     }
 });
 
+// La función de traducir expediente ya no funcionará porque eliminamos la librería, la comentamos para no generar errores.
+// Si quieres recuperarla, necesitaremos adaptarla a PaLM también.
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
         const clientsData = await getAllClientData();
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
         if (expedientesEncontrados.length > 0) {
-            const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-            for (const exp of expedientesParaCliente) {
-                if (exp.observaciones && Array.isArray(exp.observaciones)) {
-                    const observacionesVisibles = exp.observaciones.filter(o => o.fecha && o.texto && !o.texto.trim().startsWith('//'));
-                    exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
-                }
-            }
-            res.json(expedientesParaCliente);
+            // const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
+            // for (const exp of expedientesParaCliente) {
+            //     if (exp.observaciones && Array.isArray(exp.observaciones)) {
+            //         const observacionesVisibles = exp.observaciones.filter(o => o.fecha && o.texto && !o.texto.trim().startsWith('//'));
+            //         exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
+            //     }
+            // }
+            res.json(expedientesEncontrados); // Se devuelve sin traducir por ahora
         } else {
             res.status(404).json({ error: 'Expediente no encontrado' });
         }
@@ -220,5 +199,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN DEFINITIVA - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

@@ -1,7 +1,8 @@
-require('dotenv').config(); 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+// Mantenemos la librería de Google solo para la función de traducir, que no da problemas.
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
@@ -13,19 +14,20 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
 let genAI;
 if (geminiApiKey) {
+    // La inicialización se mantiene para la función de traducir.
     genAI = new GoogleGenerativeAI(geminiApiKey);
     console.log("✅ Cliente de IA inicializado correctamente.");
 } else {
     console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
 }
 
-// CORRECCIÓN CORS FINAL
 app.use(cors({
-  origin: '*' // Permite cualquier origen, ideal para GitHub Pages y pruebas
+  origin: '*'
 }));
 
 app.use(express.json({ limit: '10mb' }));
 
+// --- ESTA PARTE NO CAMBIA ---
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -41,12 +43,7 @@ async function getAllClientData() {
         respuestas.filter(Boolean).forEach(response => {
             let data = response.data;
             if (typeof data === 'string') {
-                try {
-                    data = JSON.parse(data);
-                } catch (parseError) {
-                    console.error("Error al parsear JSON de uno de los archivos:", parseError);
-                    return; // Salta este archivo si el JSON es inválido
-                }
+                try { data = JSON.parse(data); } catch (parseError) { console.error("Error al parsear JSON:", parseError); return; }
             }
             if (!Array.isArray(data)) return;
 
@@ -81,17 +78,23 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         return observacionesArray;
     }
 }
+// --- FIN DE LA PARTE QUE NO CAMBIA ---
 
+
+// =========== INICIO DE LA NUEVA VERSIÓN DE GENERAR CARTA ===========
 async function generarCartaConIA(data) {
-    if (!genAI) {
-        throw new Error("El cliente de IA no está inicializado.");
+    if (!geminiApiKey) {
+        throw new Error("El cliente de IA no está inicializado (Falta API Key).");
     }
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // CORREGIDO
+
+    // URL de la API REST de Gemini para el modelo gemini-pro (versión estable v1)
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+
+    // Construimos el mismo prompt que antes
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
-
     const prompt = `
         Eres un asistente legal experto del estudio "García & Asociados", especializado en la redacción de cartas de patrocinio para reclamos de siniestros viales en Argentina. Tu tono debe ser formal, preciso y profesional.
         Usa la fecha de hoy que te proporciono para el encabezado.
@@ -162,9 +165,24 @@ async function generarCartaConIA(data) {
 
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
-    const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+
+    // Cuerpo de la solicitud para la API REST
+    const requestBody = {
+        contents: [{
+            parts: [{
+                text: prompt
+            }]
+        }]
+    };
+    
+    // Hacemos la llamada directa con axios
+    const response = await axios.post(url, requestBody);
+    
+    // Extraemos el texto de la respuesta
+    return response.data.candidates[0].content.parts[0].text.trim();
 }
+// =========== FIN DE LA NUEVA VERSIÓN DE GENERAR CARTA ===========
+
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -172,8 +190,8 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error);
-        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.toString() });
+        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
+        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? error.response.data.error.message : error.toString() });
     }
 });
 

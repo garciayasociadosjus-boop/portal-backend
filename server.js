@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-// Mantenemos la librería de Google solo para la función de traducir, que no da problemas.
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
@@ -14,7 +13,6 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
 let genAI;
 if (geminiApiKey) {
-    // La inicialización se mantiene para la función de traducir.
     genAI = new GoogleGenerativeAI(geminiApiKey);
     console.log("✅ Cliente de IA inicializado correctamente.");
 } else {
@@ -66,7 +64,8 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         return observacionesArray;
     }
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // CORREGIDO: Usamos el mismo modelo estable que para la carta.
+        const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
         const historialParaIA = observacionesArray.map(obs => `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`).join('\n---\n');
         const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribe CADA anotación para que sea clara y profesional, usando un lenguaje sencillo pero manteniendo la precisión. Glosario: SCBA (Suprema Corte), MEV (Mesa Virtual), A despacho (Juez trabajando). Devuelve solo un array JSON válido con claves "fecha" y "texto".\n---\n${historialParaIA}`;
         const result = await model.generateContent(prompt);
@@ -81,16 +80,15 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
 // --- FIN DE LA PARTE QUE NO CAMBIA ---
 
 
-// =========== INICIO DE LA NUEVA VERSIÓN DE GENERAR CARTA ===========
+// =========== INICIO DE LA VERSIÓN FINAL DE GENERAR CARTA ===========
 async function generarCartaConIA(data) {
     if (!geminiApiKey) {
         throw new Error("El cliente de IA no está inicializado (Falta API Key).");
     }
 
-    // URL de la API REST de Gemini para el modelo gemini-pro (versión estable v1)
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
+    // CORRECCIÓN FINAL: Usamos el nombre de modelo más específico y estable.
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.0-pro:generateContent?key=${geminiApiKey}`;
 
-    // Construimos el mismo prompt que antes
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
@@ -166,7 +164,6 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    // Cuerpo de la solicitud para la API REST
     const requestBody = {
         contents: [{
             parts: [{
@@ -175,13 +172,11 @@ async function generarCartaConIA(data) {
         }]
     };
     
-    // Hacemos la llamada directa con axios
     const response = await axios.post(url, requestBody);
     
-    // Extraemos el texto de la respuesta
     return response.data.candidates[0].content.parts[0].text.trim();
 }
-// =========== FIN DE LA NUEVA VERSIÓN DE GENERAR CARTA ===========
+// =========== FIN DE LA VERSIÓN FINAL DE GENERAR CARTA ===========
 
 
 app.post('/api/generar-carta', async (req, res) => {

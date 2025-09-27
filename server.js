@@ -218,5 +218,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
+ console.log(`✅✅✅ VERSIÓN DEFINITIVA - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

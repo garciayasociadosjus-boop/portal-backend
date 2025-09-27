@@ -1,4 +1,4 @@
-require('dotenv').config(); 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -69,7 +69,7 @@ async function traducirObservacionesConIA(observacionesArray, nombreCliente) {
         return observacionesArray;
     }
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Se mantiene flash para esta función si así lo deseas
         const historialParaIA = observacionesArray.map(obs => `FECHA: "${obs.fecha}"\nANOTACION ORIGINAL: "${obs.texto}"`).join('\n---\n');
         const prompt = `Sos un asistente legal para el estudio García & Asociados. El cliente se llama ${nombreCliente}. Reescribe CADA anotación para que sea clara y profesional, usando un lenguaje sencillo pero manteniendo la precisión. Glosario: SCBA (Suprema Corte), MEV (Mesa Virtual), A despacho (Juez trabajando). Devuelve solo un array JSON válido con claves "fecha" y "texto".\n---\n${historialParaIA}`;
         const result = await model.generateContent(prompt);
@@ -86,7 +86,11 @@ async function generarCartaConIA(data) {
     if (!genAI) {
         throw new Error("El cliente de IA no está inicializado.");
     }
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // =========== INICIO DE LA CORRECCIÓN ===========
+    // Cambiamos "gemini-1.5-flash" por "gemini-pro" para asegurar la compatibilidad y el acceso.
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // =========== FIN DE LA CORRECCIÓN ===========
+
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
@@ -146,8 +150,10 @@ async function generarCartaConIA(data) {
         V. PETITORIO
         Por todo lo expuesto, SOLICITO:
         1. Se tenga por presentado el presente reclamo en legal tiempo y forma.
-        2. Se proceda al pago integral de los daños reclamados en un plazo perentorio de diez (10) días hábiles.
-        3. Se mantenga comunicación fluida durante la tramitación del expediente.
+        2.	Se proceda al pago integral de los daños reclamados.
+        3.	Se otorgue un plazo perentorio para la resolución del presente reclamo.
+        4.	Se mantenga comunicación fluida durante la tramitación del expediente
+
 
         Aguardando una pronta y favorable resolución, saludo a Uds. con distinguida consideración.
 

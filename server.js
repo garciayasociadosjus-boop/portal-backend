@@ -2,19 +2,31 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-// La librería @google/generative-ai se elimina porque no la usaremos más.
+// Reintroducimos la librería oficial de Google para la IA
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const geminiApiKey = process.env.GEMINI_API_KEY; // La misma API Key funciona para PaLM
+const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
-// El cliente de IA de Gemini ya no es necesario
-if (!geminiApiKey) {
+// --- INICIO: CONFIGURACIÓN CORRECTA DE GEMINI ---
+let genAI, geminiModel;
+if (geminiApiKey) {
+    try {
+        genAI = new GoogleGenerativeAI(geminiApiKey);
+        // Usamos el modelo "gemini-pro", que es potente y versátil.
+        geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+        console.log("✅ Cliente de IA Gemini Pro inicializado correctamente.");
+    } catch (error) {
+        console.error("🔴 ERROR: No se pudo inicializar el cliente de IA. ¿La API Key es válida?", error);
+    }
+} else {
     console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
 }
+// --- FIN: CONFIGURACIÓN CORRECTA DE GEMINI ---
 
 app.use(cors({
   origin: '*'
@@ -22,7 +34,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// --- ESTA PARTE NO CAMBIA ---
+// Esta parte no cambia y funciona bien.
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -55,19 +67,14 @@ async function getAllClientData() {
         throw new Error('No se pudo procesar uno de los archivos de datos.');
     }
 }
-// --- FIN DE LA PARTE QUE NO CAMBIA ---
 
-// =========== INICIO DE LA NUEVA VERSIÓN USANDO PALM ===========
+// =========== INICIO DE LA VERSIÓN CORREGIDA USANDO GEMINI PRO ===========
 async function generarCartaConIA(data) {
-    if (!geminiApiKey) {
-        throw new Error("Falta la API Key.");
+    if (!geminiModel) { // Verificamos si el modelo se inicializó
+        throw new Error("El cliente de IA no está configurado. Revisa la GEMINI_API_KEY.");
     }
 
-    // URL y modelo de la API PaLM 2 (diferente a Gemini)
-    const modelName = 'text-bison-001';
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
-
-    // Construimos el mismo prompt que antes
+    // Construimos el mismo prompt que ya tenías, está perfecto.
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
@@ -143,21 +150,13 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    // El cuerpo de la solicitud para la API PaLM es diferente
-    const requestBody = {
-      prompt: {
-        text: promptText,
-      },
-    };
-    
-    // Hacemos la llamada directa con axios
-    const response = await axios.post(url, requestBody);
-    
-    // Extraemos el texto de la respuesta (la estructura también es diferente)
-    return response.data.candidates[0].output.trim();
+    // Hacemos la llamada a la API de Gemini de la forma correcta
+    const result = await geminiModel.generateContent(promptText);
+    const response = await result.response;
+    const text = response.text();
+    return text.trim();
 }
-// =========== FIN DE LA NUEVA VERSIÓN USANDO PALM ===========
-
+// =========== FIN DE LA VERSIÓN CORREGIDA USANDO GEMINI PRO ===========
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -165,27 +164,23 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
-        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : error.toString() });
+        console.error("Error al generar la carta con IA:", error);
+        // Devolvemos un error más claro al frontend
+        res.status(500).json({ 
+            error: 'Error interno del servidor al generar la carta.', 
+            detalle: error.message || error.toString() 
+        });
     }
 });
 
-// La función de traducir expediente ya no funcionará porque eliminamos la librería, la comentamos para no generar errores.
-// Si quieres recuperarla, necesitaremos adaptarla a PaLM también.
+
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
         const clientsData = await getAllClientData();
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
         if (expedientesEncontrados.length > 0) {
-            // const expedientesParaCliente = JSON.parse(JSON.stringify(expedientesEncontrados));
-            // for (const exp of expedientesParaCliente) {
-            //     if (exp.observaciones && Array.isArray(exp.observaciones)) {
-            //         const observacionesVisibles = exp.observaciones.filter(o => o.fecha && o.texto && !o.texto.trim().startsWith('//'));
-            //         exp.observaciones = await traducirObservacionesConIA(observacionesVisibles, exp.nombre);
-            //     }
-            // }
-            res.json(expedientesEncontrados); // Se devuelve sin traducir por ahora
+            res.json(expedientesEncontrados);
         } else {
             res.status(404).json({ error: 'Expediente no encontrado' });
         }
@@ -199,5 +194,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN GEMINI PRO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

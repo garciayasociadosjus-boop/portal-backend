@@ -3,7 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-// Reintroducimos la librería oficial de Google para la IA
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
@@ -13,21 +12,19 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
-// --- INICIO: CONFIGURACIÓN CORRECTA DE GEMINI ---
 let genAI, geminiModel;
 if (geminiApiKey) {
     try {
         genAI = new GoogleGenerativeAI(geminiApiKey);
-        // Usamos el modelo "gemini-pro", que es potente y versátil.
-        geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
-        console.log("✅ Cliente de IA Gemini Pro inicializado correctamente.");
+        // --- CAMBIO REALIZADO AQUÍ: Usando el modelo "flash" que funcionaba antes ---
+        geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        console.log("✅ Cliente de IA Gemini Flash inicializado correctamente.");
     } catch (error) {
         console.error("🔴 ERROR: No se pudo inicializar el cliente de IA. ¿La API Key es válida?", error);
     }
 } else {
     console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
 }
-// --- FIN: CONFIGURACIÓN CORRECTA DE GEMINI ---
 
 app.use(cors({
   origin: '*'
@@ -69,13 +66,11 @@ async function getAllClientData() {
     }
 }
 
-// =========== INICIO DE LA VERSIÓN CORREGIDA USANDO GEMINI PRO ===========
 async function generarCartaConIA(data) {
-    if (!geminiModel) { // Verificamos si el modelo se inicializó
+    if (!geminiModel) {
         throw new Error("El cliente de IA no está configurado. Revisa la GEMINI_API_KEY.");
     }
 
-    // Construimos el mismo prompt que ya tenías, está perfecto.
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
@@ -151,13 +146,11 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    // Hacemos la llamada a la API de Gemini de la forma correcta
     const result = await geminiModel.generateContent(promptText);
     const response = await result.response;
     const text = response.text();
     return text.trim();
 }
-// =========== FIN DE LA VERSIÓN CORREGIDA USANDO GEMINI PRO ===========
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -166,14 +159,12 @@ app.post('/api/generar-carta', async (req, res) => {
         res.send(cartaGenerada);
     } catch (error) {
         console.error("Error al generar la carta con IA:", error);
-        // Devolvemos un error más claro al frontend
         res.status(500).json({ 
             error: 'Error interno del servidor al generar la carta.', 
             detalle: error.message || error.toString() 
         });
     }
 });
-
 
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
@@ -195,5 +186,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN GEMINI PRO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN GEMINI FLASH - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

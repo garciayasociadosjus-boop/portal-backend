@@ -1,30 +1,40 @@
-// Forzando la reinstalación de paquetes - 28/09/2025
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleAuth } = require('google-auth-library');
+const { DiscussServiceClient } = require("@google-ai/generativelanguage");
+
+// --- INICIO: Nueva configuración con Cuenta de Servicio ---
+const MODEL_NAME = "models/chat-bison-001";
+let discussServiceClient;
+
+try {
+    if (!process.env.GOOGLE_CREDENTIALS_JSON) {
+        throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
+    }
+    
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+
+    const auth = new GoogleAuth({
+        credentials,
+        scopes: 'https://www.googleapis.com/auth/cloud-platform'
+    });
+    
+    discussServiceClient = new DiscussServiceClient({ auth });
+    console.log("✅ Cliente de IA (Cuenta de Servicio) inicializado correctamente.");
+
+} catch (error) {
+    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la Cuenta de Servicio.", error);
+}
+// --- FIN: Nueva configuración con Cuenta de Servicio ---
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
-
-let genAI, geminiModel;
-if (geminiApiKey) {
-    try {
-        genAI = new GoogleGenerativeAI(geminiApiKey);
-        // --- CAMBIO REALIZADO AQUÍ: Usando el modelo "flash" que funcionaba antes ---
-        geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        console.log("✅ Cliente de IA Gemini Flash inicializado correctamente.");
-    } catch (error) {
-        console.error("🔴 ERROR: No se pudo inicializar el cliente de IA. ¿La API Key es válida?", error);
-    }
-} else {
-    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
-}
 
 app.use(cors({
   origin: '*'
@@ -32,7 +42,6 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// Esta parte no cambia y funciona bien.
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -66,13 +75,14 @@ async function getAllClientData() {
     }
 }
 
+
 async function generarCartaConIA(data) {
-    if (!geminiModel) {
-        throw new Error("El cliente de IA no está configurado. Revisa la GEMINI_API_KEY.");
+    if (!discussServiceClient) {
+        throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
     }
 
     const hoy = new Date();
-    const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const fechaActualFormateada = hoy.toLocaleDateDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     const promptText = `
@@ -81,7 +91,6 @@ async function generarCartaConIA(data) {
         Redacta la carta completando el siguiente modelo con los datos proporcionados. Expande el relato de los hechos de forma profesional.
 
         **FECHA DE HOY PARA LA CARTA:** ${fechaActualFormateada}
-
         **DATOS DEL CASO A UTILIZAR:**
         - Lugar de Emisión: ${data.lugarEmision}
         - Destinatario (Aseguradora del Tercero): ${data.destinatario.toUpperCase()}
@@ -142,15 +151,17 @@ async function generarCartaConIA(data) {
         Zapiola 662, Bernal – Quilmes
         garciayasociadosjus@gmail.com
         ---
-
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    const result = await geminiModel.generateContent(promptText);
-    const response = await result.response;
-    const text = response.text();
-    return text.trim();
+    const [response] = await discussServiceClient.generateMessage({
+        model: MODEL_NAME,
+        prompt: { messages: [{ content: promptText }] },
+    });
+
+    return response.candidates[0].content.trim();
 }
+
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -186,5 +197,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN GEMINI FLASH - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

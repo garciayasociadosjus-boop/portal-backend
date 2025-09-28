@@ -1,3 +1,4 @@
+// Forzando la reinstalación de paquetes - 28/09/2025
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');

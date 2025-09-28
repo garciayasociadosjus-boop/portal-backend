@@ -82,7 +82,8 @@ async function generarCartaConIA(data) {
     }
 
     const hoy = new Date();
-    const fechaActualFormateada = hoy.toLocaleDateDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    // LÍNEA CORREGIDA:
+    const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     const promptText = `

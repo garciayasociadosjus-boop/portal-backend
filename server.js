@@ -2,30 +2,23 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { GoogleAuth } = require('google-auth-library');
 const { DiscussServiceClient } = require("@google-ai/generativelanguage");
 
-// --- Configuración con Cuenta de Servicio ---
+// --- Configuración con API Key de Gemini ---
 const MODEL_NAME = "models/chat-bison-001";
 let discussServiceClient;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 try {
-    if (!process.env.GOOGLE_CREDENTIALS_JSON) {
-        throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
+    if (!GEMINI_API_KEY) {
+        throw new Error("La variable de entorno GEMINI_API_KEY no fue encontrada.");
     }
-    
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-
-    const auth = new GoogleAuth({
-        credentials,
-        scopes: 'https://www.googleapis.com/auth/cloud-platform'
+    discussServiceClient = new DiscussServiceClient({
+        apiKey: GEMINI_API_KEY
     });
-    
-    discussServiceClient = new DiscussServiceClient({ auth });
-    console.log("✅ Cliente de IA (Cuenta de Servicio) inicializado correctamente.");
-
+    console.log("✅ Cliente de IA (API Key Gemini) inicializado correctamente.");
 } catch (error) {
-    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la Cuenta de Servicio.", error);
+    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la API Key.", error);
 }
 
 const app = express();
@@ -73,10 +66,9 @@ async function getAllClientData() {
     }
 }
 
-
 async function generarCartaConIA(data) {
     if (!discussServiceClient) {
-        throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
+        throw new Error("El cliente de IA no está configurado. Revisa la variable GEMINI_API_KEY.");
     }
 
     const hoy = new Date();
@@ -122,7 +114,7 @@ async function generarCartaConIA(data) {
         Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños y perjuicios sufridos como consecuencia del siniestro vial que se detalla a continuación.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL \"Relato de los hechos\" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
@@ -143,7 +135,7 @@ async function generarCartaConIA(data) {
 
 
         ____________________________________
-        Dra. Camila Florencia Rodríguez García
+        Dra. Camila Florencia García
         T° XII F° 383 C.A.Q.
         CUIT 27-38843361-8
         Zapiola 662, Bernal – Quilmes
@@ -159,7 +151,6 @@ async function generarCartaConIA(data) {
 
     return response.candidates[0].content.trim();
 }
-
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -196,5 +187,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN API KEY GEMINI - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

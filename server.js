@@ -2,39 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { GoogleAuth } = require('google-auth-library');
-const { DiscussServiceClient } = require("@google-ai/generativelanguage");
-
-// --- INICIO: Nueva configuración con Cuenta de Servicio ---
-const MODEL_NAME = "models/chat-bison-001";
-let discussServiceClient;
-
-try {
-    if (!process.env.GOOGLE_CREDENTIALS_JSON) {
-        throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
-    }
-    
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-
-    const auth = new GoogleAuth({
-        credentials,
-        scopes: 'https://www.googleapis.com/auth/cloud-platform'
-    });
-    
-    discussServiceClient = new DiscussServiceClient({ auth });
-    console.log("✅ Cliente de IA (Cuenta de Servicio) inicializado correctamente.");
-
-} catch (error) {
-    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la Cuenta de Servicio.", error);
-}
-// --- FIN: Nueva configuración con Cuenta de Servicio ---
-
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
+
+if (!geminiApiKey) {
+    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
+}
 
 app.use(cors({
   origin: '*'
@@ -42,6 +20,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+// --- ESTA PARTE NO CAMBIA ---
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -74,15 +53,20 @@ async function getAllClientData() {
         throw new Error('No se pudo procesar uno de los archivos de datos.');
     }
 }
+// --- FIN DE LA PARTE QUE NO CAMBIA ---
 
-
+// =========== VERSIÓN USANDO PALM 2 (LA QUE FUNCIONABA) ===========
 async function generarCartaConIA(data) {
-    if (!discussServiceClient) {
-        throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
+    if (!geminiApiKey) {
+        throw new Error("Falta la API Key.");
     }
 
+    // URL y modelo de la API PaLM 2
+    const modelName = 'text-bison-001';
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
+
+    // Construimos el mismo prompt que antes
     const hoy = new Date();
-    // LÍNEA CORREGIDA:
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
@@ -92,6 +76,7 @@ async function generarCartaConIA(data) {
         Redacta la carta completando el siguiente modelo con los datos proporcionados. Expande el relato de los hechos de forma profesional.
 
         **FECHA DE HOY PARA LA CARTA:** ${fechaActualFormateada}
+
         **DATOS DEL CASO A UTILIZAR:**
         - Lugar de Emisión: ${data.lugarEmision}
         - Destinatario (Aseguradora del Tercero): ${data.destinatario.toUpperCase()}
@@ -152,16 +137,21 @@ async function generarCartaConIA(data) {
         Zapiola 662, Bernal – Quilmes
         garciayasociadosjus@gmail.com
         ---
+
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    const [response] = await discussServiceClient.generateMessage({
-        model: MODEL_NAME,
-        prompt: { messages: [{ content: promptText }] },
-    });
-
-    return response.candidates[0].content.trim();
+    const requestBody = {
+      prompt: {
+        text: promptText,
+      },
+    };
+    
+    const response = await axios.post(url, requestBody);
+    
+    return response.data.candidates[0].output.trim();
 }
+// =========== FIN DE LA VERSIÓN USANDO PALM ===========
 
 
 app.post('/api/generar-carta', async (req, res) => {
@@ -170,13 +160,11 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error);
-        res.status(500).json({ 
-            error: 'Error interno del servidor al generar la carta.', 
-            detalle: error.message || error.toString() 
-        });
+        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
+        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : error.toString() });
     }
 });
+
 
 app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
@@ -194,9 +182,9 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡El servidor en Render está funcionando!');
+  res.send('¡El servidor está funcionando!');
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

@@ -2,24 +2,28 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { DiscussServiceClient } = require("@google-ai/generativelanguage");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// --- Configuración con API Key de Gemini ---
-const MODEL_NAME = "models/gemini-pro";
-let discussServiceClient;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
+// --- INICIO: Nueva configuración con Cuenta de Servicio para Gemini ---
+let genAI, geminiModel;
 try {
-    if (!GEMINI_API_KEY) {
-        throw new Error("La variable de entorno GEMINI_API_KEY no fue encontrada.");
+    if (!process.env.GOOGLE_CREDENTIALS_JSON) {
+        throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
     }
-    discussServiceClient = new DiscussServiceClient({
-        apiKey: GEMINI_API_KEY
-    });
-    console.log("✅ Cliente de IA (API Key Gemini) inicializado correctamente.");
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    
+    // La librería de Gemini puede usar directamente el project_id y la private_key.
+    genAI = new GoogleGenerativeAI(credentials.private_key, credentials.client_email);
+
+    geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+    console.log("✅ Cliente de IA Gemini (Cuenta de Servicio) inicializado correctamente.");
+
 } catch (error) {
-    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la API Key.", error);
+    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la Cuenta de Servicio.", error);
 }
+// --- FIN: Nueva configuración ---
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -66,9 +70,10 @@ async function getAllClientData() {
     }
 }
 
+
 async function generarCartaConIA(data) {
-    if (!discussServiceClient) {
-        throw new Error("El cliente de IA no está configurado. Revisa la variable GEMINI_API_KEY.");
+    if (!geminiModel) {
+        throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
     }
 
     const hoy = new Date();
@@ -114,7 +119,7 @@ async function generarCartaConIA(data) {
         Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños y perjuicios sufridos como consecuencia del siniestro vial que se detalla a continuación.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL \"Relato de los hechos\" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
@@ -135,7 +140,7 @@ async function generarCartaConIA(data) {
 
 
         ____________________________________
-        Dra. Camila Florencia García
+        Dra. Camila Florencia Rodríguez García
         T° XII F° 383 C.A.Q.
         CUIT 27-38843361-8
         Zapiola 662, Bernal – Quilmes
@@ -144,13 +149,12 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    const [response] = await discussServiceClient.generateMessage({
-        model: MODEL_NAME,
-        prompt: { messages: [{ content: promptText }] },
-    });
-
-    return response.candidates[0].content.trim();
+    const result = await geminiModel.generateContent(promptText);
+    const response = await result.response;
+    const text = response.text();
+    return text.trim();
 }
+
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -170,7 +174,6 @@ app.get('/api/expediente/:dni', async (req, res) => {
     const dniBuscado = req.params.dni;
     try {
         const clientsData = await getAllClientData();
-        // LÍNEA CORREGIDA:
         const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
         if (expedientesEncontrados.length > 0) {
             res.json(expedientesEncontrados);
@@ -187,5 +190,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN API KEY GEMINI - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO (Gemini) - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

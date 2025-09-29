@@ -5,7 +5,7 @@ const axios = require('axios');
 const { DiscussServiceClient } = require("@google-ai/generativelanguage");
 
 // --- Configuración con API Key de Gemini ---
-const MODEL_NAME = "models/chat-bison-001";
+const MODEL_NAME = "models/gemini-pro";
 let discussServiceClient;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 

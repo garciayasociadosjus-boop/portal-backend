@@ -108,4 +108,93 @@ async function generarCartaConIA(data) {
         - Daños materiales en vehículo del cliente: "${data.partesDanadas}"
         - ¿Hubo Lesiones?: ${data.hayLesiones ? 'Sí' : 'No'}
         - Descripción de las lesiones: "${data.hayLesiones ? data.lesionesDesc : 'No aplica'}"
-        - Monto Total Reclamado: PES
+        - Monto Total Reclamado: PESOS ${montoEnLetras} (${montoEnNumeros})
+
+        **MODELO DE CARTA A COMPLETAR:**
+        ---
+        Lugar y fecha: ${data.lugarEmision}, ${fechaActualFormateada}
+
+        Destinatario: ${data.destinatario.toUpperCase()}
+        Domicilio: ${data.destinatarioDomicilio}
+        S/D
+
+        I. OBJETO
+        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños y perjuicios sufridos como consecuencia del siniestro vial que se detalla a continuación.
+
+        II. HECHOS
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
+
+        III. RESPONSABILIDAD
+        La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
+        - ${data.infracciones}.
+        - Incumplió el deber de prudencia y diligencia en la conducción.
+        - Causó el daño por su conducta negligente y antirreglamentaria.
+
+        IV. DAÑOS RECLAMADOS
+        Se reclama el valor total de los daños y perjuicios sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros}), importe que comprende tanto los daños materiales del rodado ${data.hayLesiones ? 'como la reparación integral por las lesiones padecidas.' : '.'}
+
+        V. PETITORIO
+        Por todo lo expuesto, SOLICITO:
+        1. Se tenga por presentado el presente reclamo en legal tiempo y forma.
+        2. Se proceda al pago integral de los daños reclamados en un plazo perentorio de diez (10) días hábiles.
+        3. Se mantenga comunicación fluida durante la tramitación del expediente.
+
+        Aguardando una pronta y favorable resolución, saludo a Uds. con distinguida consideración.
+
+
+        ____________________________________
+        Dra. Camila Florencia Rodríguez García
+        T° XII F° 383 C.A.Q.
+        CUIT 27-38843361-8
+        Zapiola 662, Bernal – Quilmes
+        garciayasociadosjus@gmail.com
+        ---
+        **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
+    `;
+
+    const [response] = await discussServiceClient.generateMessage({
+        model: MODEL_NAME,
+        prompt: { messages: [{ content: promptText }] },
+    });
+
+    return response.candidates[0].content.trim();
+}
+
+
+app.post('/api/generar-carta', async (req, res) => {
+    try {
+        const cartaGenerada = await generarCartaConIA(req.body);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.send(cartaGenerada);
+    } catch (error) {
+        console.error("Error al generar la carta con IA:", error);
+        res.status(500).json({ 
+            error: 'Error interno del servidor al generar la carta.', 
+            detalle: error.message || error.toString() 
+        });
+    }
+});
+
+app.get('/api/expediente/:dni', async (req, res) => {
+    const dniBuscado = req.params.dni;
+    try {
+        const clientsData = await getAllClientData();
+        // LÍNEA CORREGIDA:
+        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
+        if (expedientesEncontrados.length > 0) {
+            res.json(expedientesEncontrados);
+        } else {
+            res.status(404).json({ error: 'Expediente no encontrado' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
+    }
+});
+
+app.get('/', (req, res) => {
+  res.send('¡El servidor en Render está funcionando!');
+});
+
+app.listen(PORT, () => {
+  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+});

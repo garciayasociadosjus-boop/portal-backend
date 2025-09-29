@@ -2,28 +2,36 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { VertexAI } = require('@google-cloud/vertexai');
 
-// --- INICIO: Nueva configuración con Cuenta de Servicio para Gemini ---
-let genAI, geminiModel;
+// --- INICIO: CONFIGURACIÓN DEFINITIVA CON VERTEX AI ---
+let vertex_ai;
+let generativeModel;
+
 try {
     if (!process.env.GOOGLE_CREDENTIALS_JSON) {
         throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
     }
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-    
-    // La librería de Gemini puede usar directamente el project_id y la private_key.
-    genAI = new GoogleGenerativeAI(credentials.private_key, credentials.client_email);
 
-    geminiModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // Configuración para Vertex AI
+    vertex_ai = new VertexAI({
+        project: credentials.project_id,
+        location: 'us-central1', // Es importante especificar una ubicación
+        credentials
+    });
 
-    console.log("✅ Cliente de IA Gemini (Cuenta de Servicio) inicializado correctamente.");
+    // Instancia del modelo Gemini
+    generativeModel = vertex_ai.preview.getGenerativeModel({
+        model: 'gemini-1.0-pro', // Usamos un modelo Gemini estable
+    });
+
+    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente.");
 
 } catch (error) {
-    console.error("🔴 ERROR: No se pudo inicializar el cliente de IA con la Cuenta de Servicio.", error);
+    console.error("🔴 ERROR: No se pudo inicializar el cliente de Vertex AI.", error);
 }
-// --- FIN: Nueva configuración ---
-
+// --- FIN: CONFIGURACIÓN DEFINITIVA ---
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,24 +46,18 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 
 async function getAllClientData() {
+    // Esta función no cambia
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
     if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
-
-    if (promesasDeDescarga.length === 0) {
-        console.log("No hay URLs de Drive configuradas en las variables de entorno.");
-        return [];
-    }
+    if (promesasDeDescarga.length === 0) return [];
     try {
         const respuestas = await Promise.all(promesasDeDescarga);
         let datosCombinados = [];
         respuestas.filter(Boolean).forEach(response => {
             let data = response.data;
-            if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch (parseError) { console.error("Error al parsear JSON:", parseError); return; }
-            }
+            if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
             if (!Array.isArray(data)) return;
-
             const datosNormalizados = data.map(item => {
                 if (item.cliente && !item.nombre) item.nombre = item.cliente;
                 if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
@@ -65,14 +67,12 @@ async function getAllClientData() {
         });
         return datosCombinados;
     } catch (error) {
-        console.error("Error procesando los archivos de datos:", error);
         throw new Error('No se pudo procesar uno de los archivos de datos.');
     }
 }
 
-
 async function generarCartaConIA(data) {
-    if (!geminiModel) {
+    if (!generativeModel) {
         throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
     }
 
@@ -138,7 +138,6 @@ async function generarCartaConIA(data) {
 
         Aguardando una pronta y favorable resolución, saludo a Uds. con distinguida consideración.
 
-
         ____________________________________
         Dra. Camila Florencia Rodríguez García
         T° XII F° 383 C.A.Q.
@@ -148,10 +147,13 @@ async function generarCartaConIA(data) {
         ---
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
-
-    const result = await geminiModel.generateContent(promptText);
-    const response = await result.response;
-    const text = response.text();
+    
+    const request = {
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    };
+    
+    const result = await generativeModel.generateContent(request);
+    const text = result.response.candidates[0].content.parts[0].text;
     return text.trim();
 }
 
@@ -186,9 +188,9 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('¡El servidor en Render está funcionando!');
+  res.send('El servidor está funcionando!');
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN CUENTA DE SERVICIO (Gemini) - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN VERTEX AI - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

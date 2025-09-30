@@ -3,8 +3,10 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { VertexAI } = require('@google-cloud/vertexai');
+const fs = require('fs');
+const path = require('path');
 
-// --- INICIO: CONFIGURACIÓN DEFINITIVA CON VERTEX AI ---
+// --- INICIO: CONFIGURACIÓN DEFINITIVA CON ARCHIVO TEMPORAL ---
 let vertex_ai;
 let generativeModel;
 
@@ -12,26 +14,27 @@ try {
     if (!process.env.GOOGLE_CREDENTIALS_JSON) {
         throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
     }
-    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    
+    // Paso 1: Crear un archivo temporal con las credenciales
+    const credentialsContent = process.env.GOOGLE_CREDENTIALS_JSON;
+    const tempCredentialsPath = path.join(__dirname, 'temp-credentials.json');
+    fs.writeFileSync(tempCredentialsPath, credentialsContent);
 
-    // --- LÍNEAS DE DIAGNÓSTICO TEMPORALES ---
-    console.log("VERIFICANDO CREDENCIALES: El tipo de credencial es ->", typeof credentials);
-    console.log("VERIFICANDO CREDENCIALES: Las claves que contiene son ->", Object.keys(credentials));
-    // --- FIN DE LÍNEAS DE DIAGNÓSTICO ---
-
-    // Configuración para Vertex AI
+    // Paso 2: Apuntar la variable de entorno estándar a ese archivo
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempCredentialsPath;
+    
+    // Paso 3: Inicializar VertexAI (ahora encontrará las credenciales automáticamente)
+    const credentials = JSON.parse(credentialsContent);
     vertex_ai = new VertexAI({
         project: credentials.project_id,
-        location: 'us-central1', // Es importante especificar una ubicación
-        credentials
+        location: 'us-central1',
     });
 
-    // Instancia del modelo Gemini
     generativeModel = vertex_ai.preview.getGenerativeModel({
-        model: 'gemini-1.0-pro', // Usamos un modelo Gemini estable
+        model: 'gemini-1.0-pro',
     });
 
-    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente.");
+    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente vía archivo temporal.");
 
 } catch (error) {
     console.error("🔴 ERROR: No se pudo inicializar el cliente de Vertex AI.", error);
@@ -40,6 +43,8 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// ... (El resto del código no necesita cambios) ...
 
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
@@ -51,7 +56,6 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 
 async function getAllClientData() {
-    // Esta función no cambia
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
     if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));

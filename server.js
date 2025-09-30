@@ -30,11 +30,13 @@ try {
         location: 'us-central1',
     });
 
+    // Instancia del modelo Gemini
     generativeModel = vertex_ai.preview.getGenerativeModel({
-        model: 'gemini-1.0-pro',
+        // LÍNEA CORREGIDA:
+        model: 'gemini-pro', 
     });
 
-    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente vía archivo temporal.");
+    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente.");
 
 } catch (error) {
     console.error("🔴 ERROR: No se pudo inicializar el cliente de Vertex AI.", error);
@@ -43,8 +45,6 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// ... (El resto del código no necesita cambios) ...
 
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;

@@ -30,9 +30,8 @@ try {
         location: 'us-central1',
     });
 
-    // Instancia del modelo PaLM (más compatible)
+    // Instancia del modelo PaLM (compatible)
     generativeModel = vertex_ai.preview.getGenerativeModel({
-        // LÍNEA CORREGIDA: Usamos el modelo PaLM en lugar de Gemini
         model: 'chat-bison@002', 
     });
 
@@ -157,16 +156,13 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
     
-    // El método de llamada para PaLM es ligeramente diferente.
+    // MÉTODO DE LLAMADA CORREGIDO
     const request = {
-        prompt: {
-            context: "Eres un asistente legal experto.", // Contexto opcional
-            messages: [{ author: 'user', content: promptText }],
-        },
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
     };
     
-    const result = await generativeModel.chat(request);
-    const text = result.response.candidates[0].content;
+    const result = await generativeModel.generateContent(request);
+    const text = result.response.candidates[0].content.parts[0].text;
     return text.trim();
 }
 

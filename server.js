@@ -2,51 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { VertexAI } = require('@google-cloud/vertexai');
-const fs = require('fs');
-const path = require('path');
-
-// --- INICIO: CONFIGURACIÓN DEFINITIVA CON ARCHIVO TEMPORAL ---
-let vertex_ai;
-let generativeModel;
-
-try {
-    if (!process.env.GOOGLE_CREDENTIALS_JSON) {
-        throw new Error("La variable de entorno GOOGLE_CREDENTIALS_JSON no fue encontrada.");
-    }
-    
-    // Paso 1: Crear un archivo temporal con las credenciales
-    const credentialsContent = process.env.GOOGLE_CREDENTIALS_JSON;
-    const tempCredentialsPath = path.join(__dirname, 'temp-credentials.json');
-    fs.writeFileSync(tempCredentialsPath, credentialsContent);
-
-    // Paso 2: Apuntar la variable de entorno estándar a ese archivo
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempCredentialsPath;
-    
-    // Paso 3: Inicializar VertexAI (ahora encontrará las credenciales automáticamente)
-    const credentials = JSON.parse(credentialsContent);
-    vertex_ai = new VertexAI({
-        project: credentials.project_id,
-        location: 'us-central1',
-    });
-
-    // Instancia del modelo PaLM (compatible)
-    generativeModel = vertex_ai.preview.getGenerativeModel({
-        model: 'chat-bison@002', 
-    });
-
-    console.log("✅ Cliente de Vertex AI (PaLM) inicializado correctamente.");
-
-} catch (error) {
-    console.error("🔴 ERROR: No se pudo inicializar el cliente de Vertex AI.", error);
-}
-// --- FIN: CONFIGURACIÓN DEFINITIVA ---
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
+
+if (!geminiApiKey) {
+    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
+}
 
 app.use(cors({
   origin: '*'
@@ -80,9 +46,12 @@ async function getAllClientData() {
 }
 
 async function generarCartaConIA(data) {
-    if (!generativeModel) {
-        throw new Error("El cliente de IA no está configurado. Revisa las credenciales de la cuenta de servicio.");
+    if (!geminiApiKey) {
+        throw new Error("Falta la API Key.");
     }
+
+    const modelName = 'text-bison-001';
+    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
 
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -156,14 +125,15 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
     
-    // MÉTODO DE LLAMADA CORREGIDO
-    const request = {
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    const requestBody = {
+      prompt: {
+        text: promptText,
+      },
     };
     
-    const result = await generativeModel.generateContent(request);
-    const text = result.response.candidates[0].content.parts[0].text;
-    return text.trim();
+    const response = await axios.post(url, requestBody);
+    
+    return response.data.candidates[0].output.trim();
 }
 
 app.post('/api/generar-carta', async (req, res) => {
@@ -172,11 +142,8 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error);
-        res.status(500).json({ 
-            error: 'Error interno del servidor al generar la carta.', 
-            detalle: error.message || error.toString() 
-        });
+        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
+        res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : error.toString() });
     }
 });
 
@@ -196,9 +163,9 @@ app.get('/api/expediente/:dni', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('El servidor está funcionando!');
+  res.send('¡El servidor está funcionando!');
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN VERTEX AI (PaLM) - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

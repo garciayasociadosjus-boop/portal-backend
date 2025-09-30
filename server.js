@@ -20,16 +20,47 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
-// --- CÓDIGO NORMAL DE LA APLICACIÓN (SIN CAMBIOS) ---
 async function getAllClientData() {
-    // ... tu función existente
+    const promesasDeDescarga = [];
+    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
+    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
+
+    if (promesasDeDescarga.length === 0) {
+        console.log("No hay URLs de Drive configuradas en las variables de entorno.");
+        return [];
+    }
+    try {
+        const respuestas = await Promise.all(promesasDeDescarga);
+        let datosCombinados = [];
+        respuestas.filter(Boolean).forEach(response => {
+            let data = response.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (parseError) { console.error("Error al parsear JSON:", parseError); return; }
+            }
+            if (!Array.isArray(data)) return;
+
+            const datosNormalizados = data.map(item => {
+                if (item.cliente && !item.nombre) item.nombre = item.cliente;
+                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
+                return item;
+            });
+            datosCombinados = [...datosCombinados, ...datosNormalizados];
+        });
+        return datosCombinados;
+    } catch (error) {
+        console.error("Error procesando los archivos de datos:", error);
+        throw new Error('No se pudo procesar uno de los archivos de datos.');
+    }
 }
+
 async function generarCartaConIA(data) {
     if (!geminiApiKey) {
         throw new Error("Falta la API Key.");
     }
+
     const modelName = 'text-bison-001';
     const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
+
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
@@ -94,19 +125,27 @@ async function generarCartaConIA(data) {
 
 
         ____________________________________
-        Dra. Camila Florencia Rodríguez García
+        Dra. Camila Florencia García
         T° XII F° 383 C.A.Q.
         CUIT 27-38843361-8
         Zapiola 662, Bernal – Quilmes
-        
+        garciayasociadosjus@gmail.com
         ---
 
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
-    const requestBody = { prompt: { text: promptText } };
+
+    const requestBody = {
+      prompt: {
+        text: promptText,
+      },
+    };
+    
     const response = await axios.post(url, requestBody);
+    
     return response.data.candidates[0].output.trim();
 }
+
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -119,35 +158,25 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
+
 app.get('/api/expediente/:dni', async (req, res) => {
-    // ... tu función existente
+    const dniBuscado = req.params.dni;
+    try {
+        const clientsData = await getAllClientData();
+        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
+        if (expedientesEncontrados.length > 0) {
+            res.json(expedientesEncontrados);
+        } else {
+            res.status(404).json({ error: 'Expediente no encontrado' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
+    }
 });
 
 app.get('/', (req, res) => {
   res.send('¡El servidor está funcionando!');
 });
-
-
-// --- RUTA DE DIAGNÓSTICO TEMPORAL ---
-app.get('/debug-vars', (req, res) => {
-    const geminiKey = process.env.GEMINI_API_KEY || "NO ENCONTRADA";
-    const driveUrl = process.env.DRIVE_FILE_URL || "NO ENCONTRADA";
-    const siniestrosUrl = process.env.DRIVE_FILE_URL_SINIESTROS || "NO ENCONTRADA";
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(
-        `--- Verificación de Variables de Entorno ---\n\n` +
-        `1. GEMINI_API_KEY:\n` +
-        `   - ¿Existe?: ${process.env.GEMINI_API_KEY ? 'Sí' : 'No'}\n` +
-        `   - Primeros 8 caracteres: ${geminiKey.substring(0, 8)}\n` +
-        `   - Últimos 8 caracteres: ${geminiKey.substring(geminiKey.length - 8)}\n\n` +
-        `2. DRIVE_FILE_URL:\n` +
-        `   - Valor: ${driveUrl}\n\n` +
-        `3. DRIVE_FILE_URL_SINIESTROS:\n` +
-        `   - Valor: ${siniestrosUrl}\n`
-    );
-});
-// --- FIN DE LA RUTA DE DIAGNÓSTICO ---
 
 app.listen(PORT, () => {
   console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);

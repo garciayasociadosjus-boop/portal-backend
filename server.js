@@ -30,13 +30,13 @@ try {
         location: 'us-central1',
     });
 
-    // Instancia del modelo Gemini
+    // Instancia del modelo PaLM (más compatible)
     generativeModel = vertex_ai.preview.getGenerativeModel({
-        // LÍNEA CORREGIDA:
-        model: 'gemini-pro', 
+        // LÍNEA CORREGIDA: Usamos el modelo PaLM en lugar de Gemini
+        model: 'chat-bison@002', 
     });
 
-    console.log("✅ Cliente de Vertex AI (Gemini) inicializado correctamente.");
+    console.log("✅ Cliente de Vertex AI (PaLM) inicializado correctamente.");
 
 } catch (error) {
     console.error("🔴 ERROR: No se pudo inicializar el cliente de Vertex AI.", error);
@@ -157,15 +157,18 @@ async function generarCartaConIA(data) {
         **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
     
+    // El método de llamada para PaLM es ligeramente diferente.
     const request = {
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        prompt: {
+            context: "Eres un asistente legal experto.", // Contexto opcional
+            messages: [{ author: 'user', content: promptText }],
+        },
     };
     
-    const result = await generativeModel.generateContent(request);
-    const text = result.response.candidates[0].content.parts[0].text;
+    const result = await generativeModel.chat(request);
+    const text = result.response.candidates[0].content;
     return text.trim();
 }
-
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -201,5 +204,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN VERTEX AI - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+  console.log(`✅✅✅ VERSIÓN VERTEX AI (PaLM) - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
 });

@@ -10,52 +10,12 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
 const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
-if (!geminiApiKey) {
-    console.log("🔴 ADVERTENCIA: No se encontró la GEMINI_API_KEY en las variables de entorno.");
-}
-
-app.use(cors({
-  origin: '*'
-}));
-
+app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
-
-async function getAllClientData() {
-    const promesasDeDescarga = [];
-    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
-    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
-
-    if (promesasDeDescarga.length === 0) {
-        console.log("No hay URLs de Drive configuradas en las variables de entorno.");
-        return [];
-    }
-    try {
-        const respuestas = await Promise.all(promesasDeDescarga);
-        let datosCombinados = [];
-        respuestas.filter(Boolean).forEach(response => {
-            let data = response.data;
-            if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch (parseError) { console.error("Error al parsear JSON:", parseError); return; }
-            }
-            if (!Array.isArray(data)) return;
-
-            const datosNormalizados = data.map(item => {
-                if (item.cliente && !item.nombre) item.nombre = item.cliente;
-                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
-                return item;
-            });
-            datosCombinados = [...datosCombinados, ...datosNormalizados];
-        });
-        return datosCombinados;
-    } catch (error) {
-        console.error("Error procesando los archivos de datos:", error);
-        throw new Error('No se pudo procesar uno de los archivos de datos.');
-    }
-}
 
 async function generarCartaConIA(data) {
     if (!geminiApiKey) {
-        throw new Error("Falta la API Key.");
+        throw new Error("Falta la GEMINI_API_KEY en las variables de entorno de Railway.");
     }
 
     const modelName = 'text-bison-001';
@@ -123,29 +83,19 @@ async function generarCartaConIA(data) {
 
         Aguardando una pronta y favorable resolución, saludo a Uds. con distinguida consideración.
 
-
         ____________________________________
-        Dra. Camila Florencia García
+        Dra. Camila Florencia Rodríguez García
         T° XII F° 383 C.A.Q.
         CUIT 27-38843361-8
         Zapiola 662, Bernal – Quilmes
         garciayasociadosjus@gmail.com
         ---
-
-        **INSTRUCCIONES FINALES:** Tu respuesta debe ser únicamente el texto completo y final de la carta. No agregues explicaciones.
     `;
 
-    const requestBody = {
-      prompt: {
-        text: promptText,
-      },
-    };
-    
+    const requestBody = { prompt: { text: promptText } };
     const response = await axios.post(url, requestBody);
-    
     return response.data.candidates[0].output.trim();
 }
-
 
 app.post('/api/generar-carta', async (req, res) => {
     try {
@@ -153,31 +103,10 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
         res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : error.toString() });
     }
 });
 
-
-app.get('/api/expediente/:dni', async (req, res) => {
-    const dniBuscado = req.params.dni;
-    try {
-        const clientsData = await getAllClientData();
-        const expedientesEncontrados = clientsData.filter(c => String(c.dni).trim() === String(dniBuscado).trim());
-        if (expedientesEncontrados.length > 0) {
-            res.json(expedientesEncontrados);
-        } else {
-            res.status(404).json({ error: 'Expediente no encontrado' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Error interno del servidor.', detalle: error.toString() });
-    }
-});
-
-app.get('/', (req, res) => {
-  res.send('¡El servidor está funcionando!');
-});
-
-app.listen(PORT, () => {
-  console.log(`✅✅✅ VERSIÓN PaLM - ${new Date().toLocaleString('es-AR')} - Servidor escuchando en el puerto ${PORT}`);
+app.listen(process.env.PORT || 3001, () => {
+  console.log(`✅✅✅ Servidor PaLM simple escuchando...`);
 });

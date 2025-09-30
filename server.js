@@ -7,8 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const driveFileUrlFamilia = process.env.DRIVE_FILE_URL;
-const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -18,14 +16,14 @@ async function generarCartaConIA(data) {
         throw new Error("Falta la GEMINI_API_KEY en las variables de entorno de Railway.");
     }
 
-    // CAMBIO REALIZADO AQUÍ:
-    const modelName = 'gemini-pro'; // <--- modelo actualizado
-    const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
+    // Usar endpoint y formato recomendados por Google (v1beta1)
+    const url = `https://generativelanguage.googleapis.com/v1beta1/models/gemini-pro:generateContent?key=${geminiApiKey}`;
 
     const hoy = new Date();
     const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
-    const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
-    const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
+    const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal || 0);
+    const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal || 0);
+
     const promptText = `
         Eres un asistente legal experto del estudio "García & Asociados", especializado en la redacción de cartas de patrocinio para reclamos de siniestros viales en Argentina. Tu tono debe ser profesional, claro y formal, pero empático con el cliente.
         Usa la fecha de hoy que te proporciono para el encabezado.
@@ -34,16 +32,16 @@ async function generarCartaConIA(data) {
         **FECHA DE HOY PARA LA CARTA:** ${fechaActualFormateada}
         **DATOS DEL CASO A UTILIZAR:**
         - Lugar de Emisión: ${data.lugarEmision}
-        - Destinatario (Aseguradora del Tercero): ${data.destinatario.toUpperCase()}
+        - Destinatario (Aseguradora del Tercero): ${data.destinatario?.toUpperCase()}
         - Domicilio del Destinatario: ${data.destinatarioDomicilio}
-        - Cliente del Estudio (Tu mandante): ${data.siniestro.cliente.toUpperCase()}
-        - DNI del Cliente: ${data.siniestro.dni}
+        - Cliente del Estudio (Tu mandante): ${data.siniestro?.cliente?.toUpperCase()}
+        - DNI del Cliente: ${data.siniestro?.dni}
         - N° de Póliza del Cliente: ${data.polizaCliente}
-        - Aseguradora del Cliente: ${data.aseguradoraCliente.toUpperCase()}
+        - Aseguradora del Cliente: ${data.aseguradoraCliente?.toUpperCase()}
         - Fecha del Siniestro: ${data.fechaSiniestro}
         - Hora del Siniestro: ${data.horaSiniestro}
         - Lugar del Siniestro: ${data.lugarSiniestro}
-        - Vehículo del Cliente: ${data.vehiculoCliente.toUpperCase()}
+        - Vehículo del Cliente: ${data.vehiculoCliente?.toUpperCase()}
         - Nombre del Tercero (conductor responsable): ${data.nombreTercero}
         - DNI del Tercero: ${data.dniTercero || 'No informado'}
         - Relato de los hechos (versión del cliente): "${data.relato}"
@@ -57,15 +55,15 @@ async function generarCartaConIA(data) {
         ---
         Lugar y fecha: ${data.lugarEmision}, ${fechaActualFormateada}
 
-        Destinatario: ${data.destinatario.toUpperCase()}
+        Destinatario: ${data.destinatario?.toUpperCase()}
         Domicilio: ${data.destinatarioDomicilio}
         S/D
 
         I. OBJETO
-        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formalizar reclamo por el siniestro ocurrido.
+        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro?.cliente?.toUpperCase()}, DNI N° ${data.siniestro?.dni}, vengo en legal tiempo y forma a formalizar reclamo por el siniestro ocurrido.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, momento en el cual se produjo el hecho relatado: ${data.relato}.
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente?.toUpperCase()}, por ${data.lugarSiniestro}, momento en el cual se produjo el hecho relatado: ${data.relato}.
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
@@ -93,9 +91,22 @@ async function generarCartaConIA(data) {
         ---
     `;
 
-    const requestBody = { prompt: { text: promptText } };
+    // Formato para endpoint v1beta1
+    const requestBody = {
+        contents: [
+            {
+                parts: [
+                    { text: promptText }
+                ]
+            }
+        ]
+    };
+
     const response = await axios.post(url, requestBody);
-    return response.data.candidates[0].output.trim();
+
+    // Gemini responde en candidates[0].content.parts[0].text
+    const carta = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return carta.trim();
 }
 
 app.post('/api/generar-carta', async (req, res) => {
@@ -108,6 +119,6 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
-app.listen(process.env.PORT || 3001, () => {
-  console.log(`✅✅✅ Servidor PaLM simple escuchando...`);
+app.listen(PORT, () => {
+    console.log(`✅✅✅ Servidor Gemini escuchando en puerto ${PORT}...`);
 });

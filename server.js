@@ -14,6 +14,11 @@ try {
     }
     const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 
+    // --- LÍNEAS DE DIAGNÓSTICO TEMPORALES ---
+    console.log("VERIFICANDO CREDENCIALES: El tipo de credencial es ->", typeof credentials);
+    console.log("VERIFICANDO CREDENCIALES: Las claves que contiene son ->", Object.keys(credentials));
+    // --- FIN DE LÍNEAS DE DIAGNÓSTICO ---
+
     // Configuración para Vertex AI
     vertex_ai = new VertexAI({
         project: credentials.project_id,

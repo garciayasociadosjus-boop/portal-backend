@@ -14,7 +14,7 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// Función para obtener datos de Drive (no cambia)
+// La función getAllClientData no se modifica
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -51,37 +51,54 @@ async function generarCartaConIA(data) {
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     
-    // --- LÓGICA REFINADA DEL CONDUCTOR ---
-    let conductorDelHecho = `el/la titular, Sr./Sra. ${data.siniestro.cliente}`;
+    // --- INICIO: LÓGICA REFINADA DEL CONDUCTOR ---
+    let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) {
-        conductorDelHecho = `el/la Sr./Sra. ${data.siniestro.conductorNombre}`;
+        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}, quien no es el/la titular.`;
     }
-    
-    // --- INICIO: PROMPT ACTUALIZADO CON TU PLANTILLA DE WORD Y LÓGICA DE CONDUCTOR ---
+    // --- FIN: LÓGICA REFINADA DEL CONDUCTOR ---
+
+    // --- INICIO: LÓGICA PARA PRUEBA DOCUMENTAL ---
+    let pruebaDocumental = `
+V. PRUEBA DOCUMENTAL
+Se acompaña en este acto la siguiente documentación respaldatoria:
+A. Certificado de cobertura vigente
+B. Cédula del vehículo
+C. Documento de identidad del asegurado
+D. Licencia de conducir del conductor
+E. Registro fotográfico de los daños
+F. Presupuesto de reparación`;
+
+    if (data.hayLesiones) {
+        pruebaDocumental += `
+G. Certificados médicos`;
+    }
+    // --- FIN: LÓGICA PARA PRUEBA DOCUMENTAL ---
+
+    // --- INICIO: PROMPT FINAL Y DETALLADO ---
     const promptText = `
-        Eres un asistente legal experto del estudio "García & Asociados". Tu tarea es completar una carta de patrocinio con un tono formal, profesional y preciso, basándote en el modelo y los datos proporcionados.
+        Eres un asistente legal experto del estudio "García & Asociados". Tu tarea es redactar una carta de patrocinio con un tono formal, profesional y preciso, siguiendo estrictamente el modelo y las instrucciones.
 
-        **FECHA DE HOY PARA LA CARTA:** ${fechaActualFormateada}
+        INSTRUCCIONES CLAVE:
+        1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la información del conductor y la descripción del hecho. Por ejemplo, si la descripción dice "estaba estacionado y me chocaron de atrás", el relato debe ser algo como "En dichas circunstancias, el vehículo de mi mandante se encontraba debidamente estacionado cuando fue embestido en su sector trasero por el rodado de su asegurado...". Sé inteligente al transformar los datos en un relato legal.
+        2.  **Información del Conductor:** Te proporciono un dato clave: "${conductorInfoParaIA}". Debes integrar esta información de forma natural en el relato de los hechos (sección II), solo si el conductor no es el titular. Si es el titular, puedes omitir la mención explícita o integrarla si queda natural.
+        3.  **Monto:** El monto reclamado debe tener el formato exacto: "PESOS [MONTO EN LETRAS] ($ [MONTO EN NÚMEROS])".
+        4.  **Estructura:** La carta debe seguir la estructura de las secciones (I a VI) sin alterarla. Las secciones V y VI deben ser copiadas textualmente.
 
-        **DATOS DEL CASO A UTILIZAR:**
-        - Compañía aseguradora del tercero: ${data.destinatario}
-        - Domicilio de la compañía: ${data.destinatarioDomicilio}
-        - Nombre y apellido del asegurado (titular): ${data.siniestro.cliente}
-        - DNI del asegurado: ${data.siniestro.dni}
-        - Conductor al momento del hecho: ${conductorDelHecho}
-        - Número de póliza del cliente: ${data.polizaCliente}
-        - Compañía aseguradora del cliente: ${data.aseguradoraCliente}
-        - Fecha completa del siniestro: ${data.fechaSiniestro}
-        - Hora del siniestro: ${data.horaSiniestro}
-        - Vehículo del cliente (marca, modelo, año, dominio): ${data.vehiculoCliente}
-        - Descripción del lugar del siniestro: ${data.lugarSiniestro}
-        - Descripción detallada de cómo ocurrió el siniestro: "${data.relato}"
-        - Descripción del impacto y partes dañadas: "${data.partesDanadas}"
-        - Detalle de las infracciones o conductas negligentes del tercero: "${data.infracciones}"
-        - Monto en letras: ${montoEnLetras}
-        - Monto en números: ${montoEnNumeros}
+        **DATOS A UTILIZAR:**
+        - Fecha de Hoy: ${fechaActualFormateada}
+        - Datos del Cliente: ${data.siniestro.cliente}, DNI ${data.siniestro.dni}, Póliza N° ${data.polizaCliente} de ${data.aseguradoraCliente}.
+        - Datos del Siniestro: Ocurrido el ${data.fechaSiniestro} a las ${data.horaSiniestro} en ${data.lugarSiniestro}.
+        - Descripción del Siniestro (para tu relato): "${data.relato}"
+        - Vehículo del Cliente: ${data.vehiculoCliente}.
+        - Partes Dañadas: ${data.partesDanadas}.
+        - Datos del Tercero: Conductor del vehículo asegurado por ${data.destinatario}.
+        - Infracciones del Tercero: ${data.infracciones}.
+        - Monto en Letras: ${montoEnLetras}
+        - Monto en Números: ${montoEnNumeros}
+        - Destinatario: ${data.destinatario}, con domicilio en ${data.destinatarioDomicilio}.
 
-        **MODELO DE CARTA A COMPLETAR:**
+        **CARTA A GENERAR (sigue esta estructura):**
         ---
         Lugar y fecha: Bernal, ${fechaActualFormateada}
 
@@ -90,46 +107,40 @@ async function generarCartaConIA(data) {
         S/D
 
         I. OBJETO
-        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma —conforme lo dispuesto por los arts. 109, 110 y concordantes de la Ley 17.418 de Seguros, y arts. 1757, 1721, 1740 y concordantes del C.C.C.N.— a formular RECLAMO FORMAL por los daños materiales sufridos en el vehículo asegurado bajo la póliza N° ${data.polizaCliente} de ${data.aseguradoraCliente.toUpperCase()}, como consecuencia del siniestro vial que se detalla a continuación.
+        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños materiales sufridos en el vehículo de su propiedad, asegurado bajo la póliza N° ${data.polizaCliente} de ${data.aseguradoraCliente.toUpperCase()}, como consecuencia del siniestro vial que se detalla a continuación.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro}, el vehículo de mi representado/a, ${data.vehiculoCliente}, circulaba por ${data.lugarSiniestro}.
-        [AQUÍ REDACTA UN PÁRRAFO DETALLADO USANDO la "Descripción detallada de cómo ocurrió el siniestro". Es crucial que INTEGRES DE FORMA NATURAL la información del "Conductor al momento del hecho" en este relato. Por ejemplo: "En dichas circunstancias, siendo conducido por [Conductor al momento del hecho], el vehículo fue embestido..." o "Mi representado/a, quien conducía el vehículo, fue impactado..."]
-        Descripción del impacto: El impacto se produjo en las siguientes partes del vehículo de mi cliente: ${data.partesDanadas}.
-        Como consecuencia directa del referido evento, el vehículo de mi representado/a sufrió daños materiales cuya reparación constituye el objeto del presente reclamo.
+        [AQUÍ CONSTRUYE EL RELATO COHERENTE COMO SE TE INDICÓ EN LAS INSTRUCCIONES 1 Y 2]
+        El impacto se produjo en las siguientes partes del vehículo de mi cliente: ${data.partesDanadas}.
+        Como consecuencia directa del referido evento, el vehículo de mi representado/a sufrió los daños materiales cuya reparación constituye el objeto del presente reclamo.
 
         III. RESPONSABILIDAD
-        La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su asegurado/a, quien:
+        La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su asegurado/a, quien incurrió en las siguientes faltas:
         - ${data.infracciones}
         - Incumplió el deber de prudencia y diligencia en la conducción.
         - Causó el daño por su conducta antirreglamentaria.
 
         IV. DAÑOS RECLAMADOS
-        Se reclama el valor total de los daños materiales sufridos por el vehículo de mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} ($ ${montoEnNumeros}), según se detalla en el presupuesto que se acompaña.
+        Se reclama el valor total de los daños materiales sufridos por el vehículo de mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros}).
 
-        V. PRUEBA DOCUMENTAL
-        Se acompaña la siguiente documentación: Cédula del vehículo, DNI, Licencia de conducir, Presupuesto de reparación y Fotografías de los daños.
+        ${pruebaDocumental}
 
         VI. PETITORIO
-        Por todo lo expuesto, SOLICITO:
-        1. Se tenga por presentado el presente reclamo.
-        2. Se proceda al pago integral de los daños reclamados en un plazo de diez (10) días.
-        3. Se mantenga comunicación fluida.
+        Por todo lo expuesto, y considerando que se encuentran acreditados tanto el hecho generador como la extensión de los daños sufridos, SOLICITO:
+        1. Se tenga por presentado el presente reclamo en legal tiempo y forma.
+        2. Se proceda al pago integral de los daños reclamados.
+        3. Se establezca un plazo perentorio para la resolución del presente reclamo.
+        4. Se mantenga comunicación fluida durante la tramitación del expediente.
 
         Aguardando una pronta y favorable resolución, saludo a Uds. con distinguida consideración.
         ---
-        **INSTRUCCIONES FINALES:** Tu única respuesta debe ser el texto de la carta completa, desde "Lugar y fecha..." hasta la línea de saludo final. No agregues la firma. No incluyas los datos del caso, ni el modelo, ni estas instrucciones.
+        **INSTRUCCIONES FINALES:** Tu única respuesta debe ser el texto completo y final de la carta. No incluyas los datos ni estas instrucciones. No agregues la firma.
     `;
-    // --- FIN: PROMPT ACTUALIZADO ---
+    // --- FIN: PROMPT FINAL Y DETALLADO ---
 
     const requestBody = {
       model: "gpt-3.5-turbo",
-      messages: [
-        {
-          "role": "user",
-          "content": promptText
-        }
-      ]
+      messages: [{"role": "user", "content": promptText}]
     };
 
     const headers = {
@@ -142,8 +153,8 @@ async function generarCartaConIA(data) {
     const cartaSinFirma = response.data.choices[0].message.content.trim();
     const firma = `
 ____________________________________
-Dra. Camila Florencia García
-T° XII F° 383 C.A.Q. – T° 140 F° 85 C.P.A.C.F.
+Dra. Camila Florencia Rodríguez García
+T° XII F° 383 C.A.Q.
 CUIT 27-38843361-8
 Zapiola 662, Bernal – Quilmes
 garciayasociadosjus@gmail.com`;
@@ -158,11 +169,12 @@ app.post('/api/generar-carta', async (req, res) => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(cartaGenerada);
     } catch (error) {
-        console.error("Error al generar la carta con IA:", error.response ? error.response.data : error);
+        console.error("Error al generar la carta con IA:", error.response ? error.response.data.error : error);
         res.status(500).json({ error: 'Error interno del servidor al generar la carta.', detalle: error.response ? JSON.stringify(error.response.data.error) : "Error desconocido" });
     }
 });
 
+// El resto de tus rutas no se modifica
 app.listen(process.env.PORT || 3001, () => {
-  console.log(`✅✅✅ Servidor OpenAI (prompt corregido) escuchando...`);
+  console.log(`✅✅✅ Servidor OpenAI (prompt final) escuchando...`);
 });

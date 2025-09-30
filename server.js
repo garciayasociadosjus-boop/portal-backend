@@ -49,7 +49,7 @@ async function generarCartaConIA(data) {
         ---
         // ... (el resto del modelo de la carta no cambia) ...
         ____________________________________
-        Dra. Camila Florencia Rodríguez García
+        Dra. Camila Florencia García
         T° XII F° 383 C.A.Q.
         CUIT 27-38843361-8
         Zapiola 662, Bernal – Quilmes

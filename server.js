@@ -18,7 +18,8 @@ async function generarCartaConIA(data) {
         throw new Error("Falta la GEMINI_API_KEY en las variables de entorno de Railway.");
     }
 
-    const modelName = 'text-bison-001';
+    // CAMBIO REALIZADO AQUÍ:
+    const modelName = 'gemini-pro'; // <--- modelo actualizado
     const url = `https://generativelanguage.googleapis.com/v1beta2/models/${modelName}:generateText?key=${geminiApiKey}`;
 
     const hoy = new Date();
@@ -26,7 +27,7 @@ async function generarCartaConIA(data) {
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     const promptText = `
-        Eres un asistente legal experto del estudio "García & Asociados", especializado en la redacción de cartas de patrocinio para reclamos de siniestros viales en Argentina. Tu tono debe ser formal, preciso y profesional.
+        Eres un asistente legal experto del estudio "García & Asociados", especializado en la redacción de cartas de patrocinio para reclamos de siniestros viales en Argentina. Tu tono debe ser profesional, claro y formal, pero empático con el cliente.
         Usa la fecha de hoy que te proporciono para el encabezado.
         Redacta la carta completando el siguiente modelo con los datos proporcionados. Expande el relato de los hechos de forma profesional.
 
@@ -61,10 +62,10 @@ async function generarCartaConIA(data) {
         S/D
 
         I. OBJETO
-        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños y perjuicios sufridos como consecuencia del siniestro vial que se detalla a continuación.
+        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formalizar reclamo por el siniestro ocurrido.
 
         II. HECHOS
-        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, respetando las normas de tránsito vigentes. De manera imprevista y antirreglementaria, el rodado conducido por el/la Sr./Sra. ${data.nombreTercero} embistió el vehículo de mi mandante. [AQUÍ, REDACTA UN PÁRRAFO COHERENTE Y PROFESIONAL BASADO EN EL "Relato de los hechos" PROPORCIONADO POR EL CLIENTE]. El impacto se produjo en la parte ${data.partesDanadas} del vehículo de mi cliente. ${data.hayLesiones ? 'Como resultado del impacto, mi cliente sufrió las siguientes lesiones: ' + data.lesionesDesc + '.' : ''}
+        En fecha ${data.fechaSiniestro}, aproximadamente a las ${data.horaSiniestro} hs., mi representado/a circulaba a bordo de su vehículo ${data.vehiculoCliente.toUpperCase()}, por ${data.lugarSiniestro}, momento en el cual se produjo el hecho relatado: ${data.relato}.
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor de su asegurado/a, quien incurrió en graves faltas a la Ley de Tránsito, entre ellas:
@@ -73,7 +74,7 @@ async function generarCartaConIA(data) {
         - Causó el daño por su conducta negligente y antirreglamentaria.
 
         IV. DAÑOS RECLAMADOS
-        Se reclama el valor total de los daños y perjuicios sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros}), importe que comprende tanto los daños materiales del rodado ${data.hayLesiones ? 'como la reparación integral por las lesiones padecidas.' : '.'}
+        Se reclama el valor total de los daños y perjuicios sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros}), importe que comprende tanto los daños materiales como, si corresponde, lesiones.
 
         V. PETITORIO
         Por todo lo expuesto, SOLICITO:

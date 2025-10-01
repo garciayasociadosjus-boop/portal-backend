@@ -14,7 +14,7 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// La función para obtener datos de Drive no cambia
+// La función para obtener datos de Drive (no cambia)
 async function getAllClientData() {
     const promesasDeDescarga = [];
     if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
@@ -99,7 +99,7 @@ async function generarCartaConIA(data) {
     // --- LÓGICA REFINADA DEL CONDUCTOR ---
     let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) {
-        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}.`;
+        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}, quien no es el/la titular.`;
     }
     
     // --- LÓGICA PARA PRUEBA DOCUMENTAL ---

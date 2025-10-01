@@ -14,10 +14,51 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// La función para obtener datos de Drive (no cambia)
+// La función para obtener datos de Drive no cambia
 async function getAllClientData() {
     // ... tu código existente está bien ...
 }
+
+// --- INICIO: FUNCIÓN PARA CONVERTIR NÚMEROS A LETRAS ---
+function numeroALetras(num) {
+    const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+    const decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+    const centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+    const especiales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
+
+    function convertir(n) {
+        if (n < 10) return unidades[n];
+        if (n < 20) return especiales[n - 10];
+        if (n < 100) {
+            const u = n % 10;
+            const d = Math.floor(n / 10);
+            return decenas[d] + (u > 0 ? ' y ' + unidades[u] : '');
+        }
+        if (n < 1000) {
+            const c = Math.floor(n / 100);
+            const resto = n % 100;
+            if (n === 100) return 'cien';
+            return centenas[c] + (resto > 0 ? ' ' + convertir(resto) : '');
+        }
+        if (n < 1000000) {
+            const miles = Math.floor(n / 1000);
+            const resto = n % 1000;
+            const milesTexto = miles === 1 ? 'mil' : convertir(miles) + ' mil';
+            return milesTexto + (resto > 0 ? ' ' + convertir(resto) : '');
+        }
+        if (n < 1000000000) {
+            const millones = Math.floor(n / 1000000);
+            const resto = n % 1000000;
+            const millonesTexto = millones === 1 ? 'un millón' : convertir(millones) + ' millones';
+            return millonesTexto + (resto > 0 ? ' ' + convertir(resto) : '');
+        }
+        return 'número demasiado grande';
+    }
+    const parteEntera = Math.floor(num);
+    return convertir(parteEntera);
+}
+// --- FIN: FUNCIÓN PARA CONVERTIR NÚMEROS A LETRAS ---
+
 
 async function generarCartaConIA(data) {
     if (!openAiApiKey) {
@@ -25,9 +66,13 @@ async function generarCartaConIA(data) {
     }
 
     const url = 'https://api.openai.com/v1/chat/completions';
+    
+    // --- CORRECCIÓN DE FECHA ---
     const hoy = new Date();
-    const fechaActualFormateada = hoy.toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
-    const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
+    const fechaActualFormateada = new Date(hoy.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' })).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    // --- CORRECCIÓN DE NÚMERO A LETRAS ---
+    const montoEnLetras = numeroALetras(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     
     // --- LÓGICA REFINADA DEL CONDUCTOR ---
@@ -57,11 +102,10 @@ G. Certificados médicos`;
         Eres un asistente legal experto del estudio "García & Asociados". Tu tarea es redactar una carta de patrocinio con un tono formal, profesional y preciso, siguiendo estrictamente el modelo y las instrucciones.
 
         INSTRUCCIONES CLAVE:
-        1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la información del conductor y la descripción del hecho. Por ejemplo, si la descripción dice "estaba estacionado y me chocaron de atrás", el relato debe ser algo como "En dichas circunstancias, el vehículo de mi mandante se encontraba debidamente estacionado cuando fue embestido en su sector trasero por el rodado de su asegurado...". Sé inteligente al transformar los datos en un relato legal.
-        2.  **Información del Conductor:** Te proporciono un dato clave: "${conductorInfoParaIA}". Debes integrar esta información de forma natural en el relato de los hechos (sección II), solo si el conductor no es el titular. Si el vehículo estaba estacionado, aplica la lógica y no menciones quién conducía.
-        3.  **Monto:** El monto reclamado debe tener el formato exacto: "PESOS [MONTO EN LETRAS] ($ [MONTO EN NÚMEROS])".
-        4.  **Responsabilidad:** No copies y pegues las infracciones. Incorpóralas en una lista coherente dentro de la sección III.
-        5.  **Estructura:** La carta debe seguir la estructura de las secciones (I a VI) sin alterarla. Las secciones V (Prueba Documental) y VI (Petitorio) deben ser copiadas textualmente como te las proporciono en el modelo.
+        1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la descripción del hecho que te proporciono. Usa tu inteligencia para transformar los datos en un relato legal fluido.
+        2.  **Lógica del Conductor:** Te doy un dato clave: "${conductorInfoParaIA}". Si el vehículo estaba en movimiento, debes integrar esta información de forma natural en el relato. Si la descripción del siniestro indica que el vehículo estaba "estacionado", NO menciones quién lo conducía, ya que no es lógico.
+        3.  **Responsabilidad:** Te doy una pista sobre la infracción: "${data.infracciones}". No la copies textualmente. Úsala para redactar la primera línea de la sección de responsabilidad de forma más elaborada. Por ejemplo, si la pista es "maniobra imprudente", puedes escribir algo como "- Realizó una maniobra intempestiva y carente de la debida precaución.".
+        4.  **Estructura y Formato:** Sigue la estructura de las secciones (I a VI) sin alterarla. Las secciones V (Prueba Documental) y VI (Petitorio) deben ser copiadas textualmente como se proporcionan en el modelo.
 
         **DATOS A UTILIZAR:**
         - Fecha de Hoy: ${fechaActualFormateada}
@@ -69,7 +113,7 @@ G. Certificados médicos`;
         - Descripción del Siniestro (para tu relato): "${data.relato}"
         - Vehículo del Cliente: ${data.vehiculoCliente}.
         - Partes Dañadas: ${data.partesDanadas}.
-        - Infracciones del Tercero: ${data.infracciones}.
+        - Pista sobre la infracción del Tercero: ${data.infracciones}.
         - Monto en Letras: ${montoEnLetras}
         - Monto en Números: ${montoEnNumeros}
         - Destinatario: ${data.destinatario}, con domicilio en ${data.destinatarioDomicilio}.
@@ -92,7 +136,7 @@ G. Certificados médicos`;
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su asegurado/a, quien incurrió en las siguientes faltas:
-        [AQUÍ INTEGRA LAS INFRACCIONES DE FORMA COHERENTE]
+        [AQUÍ REDACTA LA PRIMERA INFRACCIÓN BASÁNDOTE EN LA PISTA, COMO SE INDICÓ EN LA INSTRUCCIÓN 3]
         - Incumplió el deber de prudencia y diligencia en la conducción.
         - Causó el daño por su conducta antirreglamentaria.
 
@@ -112,7 +156,6 @@ G. Certificados médicos`;
         ---
         **INSTRUCCIONES FINALES:** Tu única respuesta debe ser el texto completo y final de la carta. No incluyas los datos ni estas instrucciones. No agregues la firma.
     `;
-    // --- FIN: PROMPT FINAL Y DETALLADO ---
 
     const requestBody = {
       model: "gpt-3.5-turbo",
@@ -150,7 +193,6 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
-// El resto de tus rutas no se modifica
 app.listen(process.env.PORT || 3001, () => {
   console.log(`✅✅✅ Servidor OpenAI (prompt final) escuchando...`);
 });

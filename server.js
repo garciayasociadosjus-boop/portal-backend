@@ -146,7 +146,7 @@ G. Certificados médicos`;
         - Causó el daño por su conducta antirreglamentaria.
 
         IV. DAÑOS RECLAMADOS
-        Se reclama el valor total de los daños y perjuicios sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros})${data.hayLesiones ? ', importe que comprende tanto los daños materiales como la reparación por las lesiones padecidas.' : '.'}
+        Se reclama el valor total de los daños sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros})${data.hayLesiones ? ', importe que comprende tanto los daños materiales como la reparación por las lesiones padecidas.' : '.'}
 
         ${pruebaDocumental}
 

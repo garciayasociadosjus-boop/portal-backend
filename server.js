@@ -14,9 +14,30 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// La función para obtener datos de Drive no cambia
+// La función para obtener datos de Drive (no cambia)
 async function getAllClientData() {
-    // ... tu código existente está bien ...
+    const promesasDeDescarga = [];
+    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
+    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
+    if (promesasDeDescarga.length === 0) return [];
+    try {
+        const respuestas = await Promise.all(promesasDeDescarga);
+        let datosCombinados = [];
+        respuestas.filter(Boolean).forEach(response => {
+            let data = response.data;
+            if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
+            if (!Array.isArray(data)) return;
+            const datosNormalizados = data.map(item => {
+                if (item.cliente && !item.nombre) item.nombre = item.cliente;
+                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
+                return item;
+            });
+            datosCombinados = [...datosCombinados, ...datosNormalizados];
+        });
+        return datosCombinados;
+    } catch (error) {
+        throw new Error('No se pudo procesar uno de los archivos de datos.');
+    }
 }
 
 // --- INICIO: FUNCIÓN PARA CONVERTIR NÚMEROS A LETRAS ---
@@ -67,7 +88,7 @@ async function generarCartaConIA(data) {
 
     const url = 'https://api.openai.com/v1/chat/completions';
     
-    // --- CORRECCIÓN DE FECHA ---
+    // --- CORRECCIÓN DE FECHA: Forzamos la zona horaria de Argentina ---
     const hoy = new Date();
     const fechaActualFormateada = new Date(hoy.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' })).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -78,7 +99,7 @@ async function generarCartaConIA(data) {
     // --- LÓGICA REFINADA DEL CONDUCTOR ---
     let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) {
-        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}.`;
+        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}, quien no es el/la titular.`;
     }
     
     // --- LÓGICA PARA PRUEBA DOCUMENTAL ---
@@ -103,9 +124,10 @@ G. Certificados médicos`;
 
         INSTRUCCIONES CLAVE:
         1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la descripción del hecho que te proporciono. Usa tu inteligencia para transformar los datos en un relato legal fluido.
-        2.  **Lógica del Conductor:** Te doy un dato clave: "${conductorInfoParaIA}". Si el vehículo estaba en movimiento, debes integrar esta información de forma natural en el relato. Si la descripción del siniestro indica que el vehículo estaba "estacionado", NO menciones quién lo conducía, ya que no es lógico.
+        2.  **Lógica del Conductor:** Te doy un dato clave: "${conductorInfoParaIA}". Si el vehículo estaba en movimiento, debes integrar esta información de forma natural en el relato. Si la descripción del siniestro indica que el vehículo estaba "estacionado", aplica la lógica y NO menciones quién lo conducía, ya que no es relevante.
         3.  **Responsabilidad:** Te doy una pista sobre la infracción: "${data.infracciones}". No la copies textualmente. Úsala para redactar la primera línea de la sección de responsabilidad de forma más elaborada. Por ejemplo, si la pista es "maniobra imprudente", puedes escribir algo como "- Realizó una maniobra intempestiva y carente de la debida precaución.".
-        4.  **Estructura y Formato:** Sigue la estructura de las secciones (I a VI) sin alterarla. Las secciones V (Prueba Documental) y VI (Petitorio) deben ser copiadas textualmente como se proporcionan en el modelo.
+        4.  **Lesiones:** Si hay lesiones (${data.hayLesiones ? 'Sí' : 'No'}), debes mencionarlo en el relato de los hechos (sección II) de forma profesional, indicando que "Como producto del impacto, [el conductor/la Sra. X] sufrió lesiones, consistentes en ${data.lesionesDesc}".
+        5.  **Estructura y Formato:** Sigue la estructura de las secciones (I a VI) sin alterarla. Las secciones V (Prueba Documental) y VI (Petitorio) deben ser copiadas textualmente como se proporcionan en el modelo.
 
         **DATOS A UTILIZAR:**
         - Fecha de Hoy: ${fechaActualFormateada}
@@ -127,10 +149,10 @@ G. Certificados médicos`;
         S/D
 
         I. OBJETO
-        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños materiales sufridos en el vehículo de su propiedad, asegurado bajo la póliza N° ${data.polizaCliente} de ${data.aseguradoraCliente.toUpperCase()}, como consecuencia del siniestro vial que se detalla a continuación.
+        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños materiales ${data.hayLesiones ? 'y lesiones físicas' : ''} sufridos como consecuencia del siniestro vial que se detalla a continuación.
 
         II. HECHOS
-        [AQUÍ CONSTRUYE EL RELATO COHERENTE COMO SE TE INDICÓ EN LAS INSTRUCCIONES 1 Y 2]
+        [AQUÍ CONSTRUYE EL RELATO COHERENTE COMO SE TE INDICÓ EN LAS INSTRUCCIONES 1, 2 Y 4]
         El impacto se produjo en las siguientes partes del vehículo de mi cliente: ${data.partesDanadas}.
         Como consecuencia directa del referido evento, el vehículo de mi representado/a sufrió los daños materiales cuya reparación constituye el objeto del presente reclamo.
 
@@ -141,7 +163,7 @@ G. Certificados médicos`;
         - Causó el daño por su conducta antirreglamentaria.
 
         IV. DAÑOS RECLAMADOS
-        Se reclama el valor total de los daños materiales sufridos por el vehículo de mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros}).
+        Se reclama el valor total de los daños y perjuicios sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros})${data.hayLesiones ? ', importe que comprende tanto los daños materiales como la reparación por las lesiones padecidas.' : '.'}
 
         ${pruebaDocumental}
 
@@ -156,6 +178,7 @@ G. Certificados médicos`;
         ---
         **INSTRUCCIONES FINALES:** Tu única respuesta debe ser el texto completo y final de la carta. No incluyas los datos ni estas instrucciones. No agregues la firma.
     `;
+    // --- FIN: PROMPT FINAL Y DETALLADO ---
 
     const requestBody = {
       model: "gpt-3.5-turbo",
@@ -193,6 +216,7 @@ app.post('/api/generar-carta', async (req, res) => {
     }
 });
 
+// El resto de tus rutas no se modifica
 app.listen(process.env.PORT || 3001, () => {
   console.log(`✅✅✅ Servidor OpenAI (prompt final) escuchando...`);
 });

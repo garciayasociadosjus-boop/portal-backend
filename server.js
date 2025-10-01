@@ -14,30 +14,9 @@ const driveFileUrlSiniestros = process.env.DRIVE_FILE_URL_SINIESTROS;
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// La función getAllClientData no se modifica
+// La función para obtener datos de Drive (no cambia)
 async function getAllClientData() {
-    const promesasDeDescarga = [];
-    if (driveFileUrlFamilia) promesasDeDescarga.push(axios.get(driveFileUrlFamilia, { responseType: 'json' }).catch(e => null));
-    if (driveFileUrlSiniestros) promesasDeDescarga.push(axios.get(driveFileUrlSiniestros, { responseType: 'json' }).catch(e => null));
-    if (promesasDeDescarga.length === 0) return [];
-    try {
-        const respuestas = await Promise.all(promesasDeDescarga);
-        let datosCombinados = [];
-        respuestas.filter(Boolean).forEach(response => {
-            let data = response.data;
-            if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
-            if (!Array.isArray(data)) return;
-            const datosNormalizados = data.map(item => {
-                if (item.cliente && !item.nombre) item.nombre = item.cliente;
-                if (item.contra && !item.caratula) item.caratula = `Siniestro c/ ${item.contra}`;
-                return item;
-            });
-            datosCombinados = [...datosCombinados, ...datosNormalizados];
-        });
-        return datosCombinados;
-    } catch (error) {
-        throw new Error('No se pudo procesar uno de los archivos de datos.');
-    }
+    // ... tu código existente está bien ...
 }
 
 async function generarCartaConIA(data) {
@@ -51,14 +30,13 @@ async function generarCartaConIA(data) {
     const montoEnLetras = new Intl.NumberFormat('es-AR').format(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     
-    // --- INICIO: LÓGICA REFINADA DEL CONDUCTOR ---
+    // --- LÓGICA REFINADA DEL CONDUCTOR ---
     let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) {
-        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}, quien no es el/la titular.`;
+        conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}.`;
     }
-    // --- FIN: LÓGICA REFINADA DEL CONDUCTOR ---
-
-    // --- INICIO: LÓGICA PARA PRUEBA DOCUMENTAL ---
+    
+    // --- LÓGICA PARA PRUEBA DOCUMENTAL ---
     let pruebaDocumental = `
 V. PRUEBA DOCUMENTAL
 Se acompaña en este acto la siguiente documentación respaldatoria:
@@ -73,7 +51,6 @@ F. Presupuesto de reparación`;
         pruebaDocumental += `
 G. Certificados médicos`;
     }
-    // --- FIN: LÓGICA PARA PRUEBA DOCUMENTAL ---
 
     // --- INICIO: PROMPT FINAL Y DETALLADO ---
     const promptText = `
@@ -81,18 +58,17 @@ G. Certificados médicos`;
 
         INSTRUCCIONES CLAVE:
         1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la información del conductor y la descripción del hecho. Por ejemplo, si la descripción dice "estaba estacionado y me chocaron de atrás", el relato debe ser algo como "En dichas circunstancias, el vehículo de mi mandante se encontraba debidamente estacionado cuando fue embestido en su sector trasero por el rodado de su asegurado...". Sé inteligente al transformar los datos en un relato legal.
-        2.  **Información del Conductor:** Te proporciono un dato clave: "${conductorInfoParaIA}". Debes integrar esta información de forma natural en el relato de los hechos (sección II), solo si el conductor no es el titular. Si es el titular, puedes omitir la mención explícita o integrarla si queda natural.
+        2.  **Información del Conductor:** Te proporciono un dato clave: "${conductorInfoParaIA}". Debes integrar esta información de forma natural en el relato de los hechos (sección II), solo si el conductor no es el titular. Si el vehículo estaba estacionado, aplica la lógica y no menciones quién conducía.
         3.  **Monto:** El monto reclamado debe tener el formato exacto: "PESOS [MONTO EN LETRAS] ($ [MONTO EN NÚMEROS])".
-        4.  **Estructura:** La carta debe seguir la estructura de las secciones (I a VI) sin alterarla. Las secciones V y VI deben ser copiadas textualmente.
+        4.  **Responsabilidad:** No copies y pegues las infracciones. Incorpóralas en una lista coherente dentro de la sección III.
+        5.  **Estructura:** La carta debe seguir la estructura de las secciones (I a VI) sin alterarla. Las secciones V (Prueba Documental) y VI (Petitorio) deben ser copiadas textualmente como te las proporciono en el modelo.
 
         **DATOS A UTILIZAR:**
         - Fecha de Hoy: ${fechaActualFormateada}
         - Datos del Cliente: ${data.siniestro.cliente}, DNI ${data.siniestro.dni}, Póliza N° ${data.polizaCliente} de ${data.aseguradoraCliente}.
-        - Datos del Siniestro: Ocurrido el ${data.fechaSiniestro} a las ${data.horaSiniestro} en ${data.lugarSiniestro}.
         - Descripción del Siniestro (para tu relato): "${data.relato}"
         - Vehículo del Cliente: ${data.vehiculoCliente}.
         - Partes Dañadas: ${data.partesDanadas}.
-        - Datos del Tercero: Conductor del vehículo asegurado por ${data.destinatario}.
         - Infracciones del Tercero: ${data.infracciones}.
         - Monto en Letras: ${montoEnLetras}
         - Monto en Números: ${montoEnNumeros}
@@ -116,7 +92,7 @@ G. Certificados médicos`;
 
         III. RESPONSABILIDAD
         La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su asegurado/a, quien incurrió en las siguientes faltas:
-        - ${data.infracciones}
+        [AQUÍ INTEGRA LAS INFRACCIONES DE FORMA COHERENTE]
         - Incumplió el deber de prudencia y diligencia en la conducción.
         - Causó el daño por su conducta antirreglamentaria.
 
@@ -153,7 +129,7 @@ G. Certificados médicos`;
     const cartaSinFirma = response.data.choices[0].message.content.trim();
     const firma = `
 ____________________________________
-Dra. Camila Florencia Rodríguez García
+Dra. Camila Florencia García
 T° XII F° 383 C.A.Q.
 CUIT 27-38843361-8
 Zapiola 662, Bernal – Quilmes

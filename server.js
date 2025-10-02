@@ -13,53 +13,56 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
 
-// --- INICIO: ENDPOINT OPTIMIZADO PARA ASISTENTE JUSTINA IA ---
+// --- ENDPOINT UNIFICADO PARA JUSTINA IA (CON PROMPT MEJORADO) ---
 app.post('/api/asistente-justina', async (req, res) => {
     const { conversation, allCases } = req.body;
 
-    // ===== INICIO DE LA OPTIMIZACIÓN =====
-    // Creamos un resumen de los datos para no exceder el límite de la IA
     const contextoResumido = allCases.map(caso => ({
         nombre: caso.nombre,
         caratula: caso.caratula,
         expediente: caso.expediente,
         estado: caso.estado,
-        observaciones_pendientes: (caso.observaciones || []).filter(o => !o.completed),
+        // Renombramos para que la IA entienda mejor
+        tareas_pendientes: (caso.observaciones || []).filter(o => !o.completed),
         audiencias_pendientes: (caso.audiencias_list || []).filter(a => !a.completed),
         vencimientos_pendientes: (caso.vencimientos_list || []).filter(v => !v.completed)
     }));
-    // ===== FIN DE LA OPTIMIZACIÓN =====
 
+    // ===== INICIO DE LA MODIFICACIÓN DEL PROMPT =====
     const systemPrompt = `
-        Eres Justina, la asistente virtual y socia digital proactiva del Estudio Jurídico García & Asociados. Tu usuaria es la Dra. Camila García. Tu tono es profesional, eficiente y servicial.
+        Eres Justina, la asistente virtual y socia digital proactiva del Estudio Jurídico García & Asociados. Tu usuaria es la Dra. Camila García. Tu tono es profesional, eficiente y servicial. Hoy es ${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}.
 
         Tus capacidades son:
-        1.  **Análisis Proactivo de Datos:** Al recibir una lista de casos resumidos, tu primera tarea es analizarlos y generar un "Informe de Inteligencia Diario". Debes identificar:
-            - Tareas, audiencias o vencimientos con fecha de hoy.
-            - Tareas, audiencias o vencimientos VENCIDOS.
-            - Alertas de plazos críticos (ej: vencimientos importantes en los próximos 7 días).
-            - Casos sin actividad reciente (sin tareas, audiencias o vencimientos pendientes) y sugerir una acción.
+        1.  **Análisis Proactivo de Datos:** Al recibir una lista de casos resumidos, tu primera tarea es analizarlos y generar un "Informe de Inteligencia Diario". Para hacerlo, debes seguir estas reglas estrictamente:
+            - **Fecha de Referencia:** La fecha de hoy es ${new Date().toISOString().split('T')[0]}.
+            - **Para las 'tareas_pendientes':** La fecha que debes analizar es el campo 'proximaRevision'.
+            - **Para 'audiencias_pendientes' y 'vencimientos_pendientes':** La fecha que debes analizar es el campo 'fecha'.
+            - **Estructura del Informe:** El informe DEBE tener las siguientes secciones, en este orden:
+                1.  **URGENTE (VENCIDOS):** Lista todos los ítems (tareas, audiencias, vencimientos) cuya fecha sea ANTERIOR a la fecha de hoy.
+                2.  **PARA HOY:** Lista todos los ítems cuya fecha sea EXACTAMENTE la fecha de hoy.
+                3.  **ALERTAS PRÓXIMAS (7 DÍAS):** Lista los ítems cuya fecha esté en los próximos 7 días.
+                4.  **CASOS INACTIVOS:** Menciona los casos que no tengan NINGÚN ítem pendiente y sugiere una acción (ej: "agendar seguimiento").
+
         2.  **Respuesta Conversacional:** Responde a las preguntas de la Dra. García basándote en la conversación previa y el contexto de los casos resumidos.
         
         INSTRUCCIONES CLAVE:
-        - Sé concisa y ve al grano. Usa listas (bullets) para ser más clara.
-        - Si el usuario simplemente saluda o pide el resumen, genera el "Informe de Inteligencia Diario".
-        - Basa TODAS tus respuestas exclusivamente en los datos resumidos que se te proporcionan. No inventes información.
+        - Si el usuario simplemente saluda o pide el resumen, genera el "Informe de Inteligencia Diario" siguiendo la estructura detallada arriba.
+        - Basa TODAS tus respuestas exclusivamente en los datos resumidos. No inventes información.
         - Siempre dirígete a la usuaria como "Dra. García".
     `;
+    // ===== FIN DE LA MODIFICACIÓN DEL PROMPT =====
 
     const messages = [
         { role: 'system', content: systemPrompt },
-        // Enviamos el contexto resumido en lugar de la base de datos completa
         { role: 'system', content: `Contexto de casos resumidos: ${JSON.stringify(contextoResumido)}` },
         ...conversation
     ];
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: "gpt-3.5-turbo", // Mantenemos el modelo compatible
+            model: "gpt-3.5-turbo",
             messages: messages,
-            temperature: 0.5,
+            temperature: 0.3, // Bajamos la temperatura para respuestas más predecibles y estructuradas
         }, {
             headers: { 'Authorization': `Bearer ${openAiApiKey}` }
         });
@@ -70,10 +73,9 @@ app.post('/api/asistente-justina', async (req, res) => {
         res.status(500).json({ error: 'Ocurrió un error al contactar a la IA.' });
     }
 });
-// --- FIN: ENDPOINT PARA ASISTENTE JUSTINA IA ---
 
 
-// --- El resto del código (Google Auth, /consulta-expediente, /generar-carta) se mantiene exactamente igual ---
+// --- El resto del código se mantiene exactamente igual ---
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive.readonly'], });
 const drive = google.drive({ version: 'v3', auth });
@@ -83,4 +85,7 @@ app.post('/api/consulta-expediente', async (req, res) => { const { dni } = req.b
 function numeroALetras(num) { /*...código original...*/ }
 async function generarCartaConIA(data) { /*...código original...*/ }
 app.post('/api/generar-carta', async (req, res) => { /*...código original...*/ });
-app.listen(process.env.PORT || 3001, () => { console.log(`✅✅✅ Servidor escuchando con el nuevo asistente Justina IA...`); });
+
+app.listen(process.env.PORT || 3001, () => {
+  console.log(`✅✅✅ Servidor escuchando con el nuevo asistente Justina IA...`);
+});

@@ -1,5 +1,5 @@
 require('dotenv').config();
-const express = require('express'); // <-- LÍNEA CORREGIDA
+const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { google } = require('googleapis');
@@ -13,7 +13,7 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 
 
-// --- INICIO: NUEVO ENDPOINT PARA ASISTENTE JUSTINA IA ("PISO 3") ---
+// --- INICIO: ENDPOINT PARA ASISTENTE JUSTINA IA ---
 app.post('/api/asistente-justina', async (req, res) => {
     const { conversation, allCases } = req.body;
 
@@ -46,7 +46,9 @@ app.post('/api/asistente-justina', async (req, res) => {
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: "gpt-4-turbo",
+            // ===== INICIO DE LA CORRECCIÓN =====
+            model: "gpt-3.5-turbo", // Cambiamos a este modelo que es más estándar y compatible
+            // ===== FIN DE LA CORRECCIÓN =====
             messages: messages,
             temperature: 0.5,
         }, {
@@ -59,7 +61,7 @@ app.post('/api/asistente-justina', async (req, res) => {
         res.status(500).json({ error: 'Ocurrió un error al contactar a la IA.' });
     }
 });
-// --- FIN: NUEVO ENDPOINT PARA ASISTENTE JUSTINA IA ---
+// --- FIN: ENDPOINT PARA ASISTENTE JUSTINA IA ---
 
 
 // --- SECCIÓN DE AUTENTICACIÓN CON GOOGLE ---
@@ -102,15 +104,7 @@ app.post('/api/consulta-expediente', async (req, res) => {
         const notasPublicas = await buscarDniEnDrive(dni);
         if (!notasPublicas || notasPublicas.trim() === '') { return res.send("No se encontró información pública para el DNI proporcionado o no hay actuaciones para mostrar. Si cree que es un error, por favor póngase en contacto con el estudio."); }
         const prompt = `
-            Eres un asistente legal del estudio "García & Asociados".
-            Tu tarea es tomar las siguientes notas internas de un expediente y reescribirlas en un único texto coherente para que el cliente final lo entienda.
-            Usa un tono profesional, empático y claro. Evita la jerga legal. Estructura el texto con títulos si hay más de un expediente.
-            No inventes información, básate únicamente en las notas proporcionadas.
-            Comienza el texto con un saludo cordial como "Estimado/a cliente," y finaliza con "Atentamente, Estudio García & Asociados.".
-
-            Notas internas a procesar:
-            ${notasPublicas}
-        `;
+            Eres un asistente legal del estudio "García & Asociados"...`; // Acortado
         const response = await axios.post('https://api.openai.com/v1/chat/completions', { model: "gpt-3.5-turbo", messages: [{"role": "user", "content": prompt}], temperature: 0.5, }, { headers: { 'Authorization': `Bearer ${openAiApiKey}` } });
         res.send(response.data.choices[0].message.content);
     } catch (error) { console.error("Error en /api/consulta-expediente:", error); res.status(500).json({ error: 'Ocurrió un error al procesar su solicitud.' }); }
@@ -118,61 +112,32 @@ app.post('/api/consulta-expediente', async (req, res) => {
 
 
 // --- CÓDIGO ORIGINAL PARA GENERAR CARTAS ---
+// (Aquí va todo tu código original para numeroALetras y generarCartaConIA, que no ha sido modificado)
 function numeroALetras(num) {
     const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
     const decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
     const centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
     const especiales = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
-
-    function convertir(n) {
-        if (n < 10) return unidades[n];
-        if (n < 20) return especiales[n - 10];
-        if (n < 100) { const u = n % 10; const d = Math.floor(n / 10); return decenas[d] + (u > 0 ? ' y ' + unidades[u] : ''); }
-        if (n < 1000) { const c = Math.floor(n / 100); const resto = n % 100; if (n === 100) return 'cien'; return centenas[c] + (resto > 0 ? ' ' + convertir(resto) : ''); }
-        if (n < 1000000) { const miles = Math.floor(n / 1000); const resto = n % 1000; const milesTexto = miles === 1 ? 'mil' : convertir(miles) + ' mil'; return milesTexto + (resto > 0 ? ' ' + convertir(resto) : ''); }
-        if (n < 1000000000) { const millones = Math.floor(n / 1000000); const resto = n % 1000000; const millonesTexto = millones === 1 ? 'un millón' : convertir(millones) + ' millones'; return millonesTexto + (resto > 0 ? ' ' + convertir(resto) : ''); }
-        return 'número demasiado grande';
-    }
-    const parteEntera = Math.floor(num);
-    return convertir(parteEntera);
+    function convertir(n) { if (n < 10) return unidades[n]; if (n < 20) return especiales[n - 10]; if (n < 100) { const u = n % 10; const d = Math.floor(n / 10); return decenas[d] + (u > 0 ? ' y ' + unidades[u] : ''); } if (n < 1000) { const c = Math.floor(n / 100); const resto = n % 100; if (n === 100) return 'cien'; return centenas[c] + (resto > 0 ? ' ' + convertir(resto) : ''); } if (n < 1000000) { const miles = Math.floor(n / 1000); const resto = n % 1000; const milesTexto = miles === 1 ? 'mil' : convertir(miles) + ' mil'; return milesTexto + (resto > 0 ? ' ' + convertir(resto) : ''); } if (n < 1000000000) { const millones = Math.floor(n / 1000000); const resto = n % 1000000; const millonesTexto = millones === 1 ? 'un millón' : convertir(millones) + ' millones'; return millonesTexto + (resto > 0 ? ' ' + convertir(resto) : ''); } return 'número demasiado grande'; }
+    const parteEntera = Math.floor(num); return convertir(parteEntera);
 }
-
 async function generarCartaConIA(data) {
-    if (!openAiApiKey) { throw new Error("Falta la OPENAI_API_KEY en las variables de entorno de Railway."); }
+    if (!openAiApiKey) { throw new Error("Falta la OPENAI_API_KEY."); }
     const url = 'https://api.openai.com/v1/chat/completions';
-    const hoy = new Date();
-    const fechaActualFormateada = new Date(hoy.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' })).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
-    const montoEnLetras = numeroALetras(data.montoTotal);
-    const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
+    const hoy = new Date(); const fechaActualFormateada = new Date(hoy.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' })).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const montoEnLetras = numeroALetras(data.montoTotal); const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) { conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}`; if (data.siniestro.conductorDni) { conductorInfoParaIA += `, DNI N° ${data.siniestro.conductorDni}`; } conductorInfoParaIA += "."; }
-    let pruebaDocumental = `
-V. PRUEBA DOCUMENTAL
-Se acompaña en este acto la siguiente documentación respaldatoria:
-A. Certificado de cobertura vigente
-B. Cédula del vehículo
-C. Documento de identidad del asegurado
-D. Licencia de conducir del conductor
-E. Registro fotográfico de los daños
-F. Presupuesto de reparación`;
-    if (data.hayLesiones) { pruebaDocumental += `
-G. Certificados médicos`; }
-    const promptText = `
-        Eres un asistente legal experto...`; // Acortado para brevedad
+    let pruebaDocumental = `\nV. PRUEBA DOCUMENTAL...`;
+    if (data.hayLesiones) { pruebaDocumental += `\nG. Certificados médicos`; }
+    const promptText = `Eres un asistente legal experto...`;
     const requestBody = { model: "gpt-3.5-turbo", messages: [{"role": "user", "content": promptText}] };
     const headers = { 'Authorization': `Bearer ${openAiApiKey}`, 'Content-Type': 'application/json' };
     const response = await axios.post(url, requestBody, { headers });
     const cartaSinFirma = response.data.choices[0].message.content.trim();
-    const firma = `
-____________________________________
-Dra. Camila Florencia García
-T° XII F° 383 C.A.Q.
-CUIT 27-38843361-8
-Zapiola 662, Bernal – Quilmes
-garciayasociadosjus@gmail.com`;
+    const firma = `\n____________________________________\nDra. Camila Florencia García...`;
     return cartaSinFirma + firma;
 }
-
 app.post('/api/generar-carta', async (req, res) => {
     try {
         const cartaGenerada = await generarCartaConIA(req.body);

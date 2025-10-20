@@ -28,7 +28,8 @@ const driveFileIds = {
 };
 
 
-// --- FUNCIÓN PARA BUSCAR DATOS EN DRIVE ---
+// === CAMBIO CLAVE 1: LÓGICA DE FECHAS CORREGIDA ===
+// Usa 'fecha' para todo y solo añade 'proximaRevision' en la entrada más reciente.
 async function buscarDniEnDrive(dni) {
     let todasLasNotasPublicas = [];
 
@@ -48,13 +49,26 @@ async function buscarDniEnDrive(dni) {
             if (expedientes.length > 0) {
                  expedientes.forEach(exp => {
                     const titulo = `--- Expediente: ${exp.caratula || exp.numeroReclamo || 'General'} ---\n`;
-                    const notas = (exp.observaciones || [])
-                        .filter(obs => obs.texto && obs.texto.trim() !== '')
-                        .map(obs => `- (Fecha de revisión: ${obs.proximaRevision || 'N/A'}): ${obs.texto}`)
-                        .join('\n');
                     
-                    if(notas) {
-                        todasLasNotasPublicas.push(titulo + notas);
+                    const notasFormateadas = (exp.observaciones || [])
+                        .filter(obs => obs.texto && obs.texto.trim() !== '' && obs.fecha) // Solo procesamos notas con texto y fecha de trabajo
+                        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) // Ordena de más reciente a más antiguo por fecha de trabajo
+                        .map((obs, index) => { // 'index' nos permite saber cuál es la primera (más reciente)
+                            // La fecha de trabajo es la principal
+                            const fechaTrabajoLegible = new Date(obs.fecha + 'T00:00:00').toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
+                            let textoDeActuacion = `Fecha: ${fechaTrabajoLegible}\nActuación: ${obs.texto}`;
+                            
+                            // SOLO para la actuación más reciente (index === 0), añadimos la próxima revisión si existe
+                            if (index === 0 && obs.proximaRevision) {
+                                const proximaRevisionLegible = new Date(obs.proximaRevision + 'T00:00:00').toLocaleString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
+                                textoDeActuacion += `\n(Próxima revisión programada para el ${proximaRevisionLegible})`;
+                            }
+                            return textoDeActuacion;
+                        })
+                        .join('\n\n');
+                    
+                    if(notasFormateadas) {
+                        todasLasNotasPublicas.push(titulo + notasFormateadas);
                     }
                 });
             }
@@ -68,7 +82,7 @@ async function buscarDniEnDrive(dni) {
 }
 
 
-// --- NUEVA RUTA PARA LA CONSULTA DE EXPEDIENTES ---
+// --- RUTA PARA LA CONSULTA DE EXPEDIENTES ---
 app.post('/api/consulta-expediente', async (req, res) => {
     const { dni } = req.body;
     if (!dni) {
@@ -82,21 +96,28 @@ app.post('/api/consulta-expediente', async (req, res) => {
             return res.send("No se encontró información pública para el DNI proporcionado o no hay actuaciones para mostrar. Si cree que es un error, por favor póngase en contacto con el estudio.");
         }
 
+        // === CAMBIO CLAVE 2: PROMPT AJUSTADO PARA MANEJAR LA PRÓXIMA REVISIÓN ===
         const prompt = `
             Eres un asistente legal del estudio "García & Asociados".
-            Tu tarea es tomar las siguientes notas internas de un expediente y reescribirlas en un único texto coherente para que el cliente final lo entienda.
-            Usa un tono profesional, empático y claro. Evita la jerga legal. Estructura el texto con títulos si hay más de un expediente.
-            No inventes información, básate únicamente en las notas proporcionadas.
-            Comienza el texto con un saludo cordial como "Estimado/a cliente," y finaliza con "Atentamente, Estudio García & Asociados.".
+            Tu tarea es tomar las siguientes notas internas y presentarlas de forma clara y estructurada para que el cliente final lo entienda.
+
+            INSTRUCCIONES CLAVE:
+            1.  **Formato de Salida:** Debes generar un único texto. Comienza con un saludo cordial ("Estimado/a cliente, a continuación le presentamos un resumen actualizado sobre el estado de sus expedientes.") y finaliza con "Atentamente, Estudio García & Asociados.".
+            2.  **Estructura:** Para cada expediente (delimitado por "--- Expediente: ... ---"), crea un título usando Markdown (ej: ### **Expediente: CARATULA DEL EXPEDIENTE**).
+            3.  **Actuaciones:** Debajo de cada título, crea una lista de viñetas (usando un asterisco *). Cada viñeta debe representar una actuación.
+            4.  **Contenido de la Viñeta:** Cada viñeta debe comenzar con la fecha de la actuación en negrita (ej: **18 de octubre de 2025:**), seguido de la descripción de la actuación reescrita en un tono claro y profesional.
+            5.  **Próxima Revisión (IMPORTANTE):** Si una actuación incluye una nota entre paréntesis sobre una "próxima revisión", debes integrar esa información de forma natural al final de ESA MISMA viñeta. Por ejemplo: "Se presentó el escrito de demanda. **El próximo seguimiento del expediente está programado para el 25 de octubre de 2025.**"
+            6.  **Orden:** Las notas ya vienen ordenadas de la más reciente a la más antigua. RESPETA ESE ORDEN.
+            7.  **No Inventar:** Basa tu respuesta únicamente en las notas proporcionadas.
 
             Notas internas a procesar:
             ${notasPublicas}
         `;
 
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: "gpt-3.5-turbo",
+            model: "gpt-4-turbo",
             messages: [{"role": "user", "content": prompt}],
-            temperature: 0.5,
+            temperature: 0.3,
         }, {
             headers: { 'Authorization': `Bearer ${openAiApiKey}` }
         });
@@ -110,7 +131,7 @@ app.post('/api/consulta-expediente', async (req, res) => {
 });
 
 
-// --- TU CÓDIGO ORIGINAL PARA GENERAR CARTAS (INTACTO) ---
+// --- CÓDIGO ORIGINAL PARA GENERAR CARTAS (INTACTO) ---
 function numeroALetras(num) {
     const unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
     const decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];

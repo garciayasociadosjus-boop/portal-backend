@@ -28,26 +28,66 @@ const driveFileIds = {
 };
 
 
-// === CAMBIO CLAVE 1: LÓGICA DE FECHAS CORREGIDA ===
-// Usa 'fecha' para todo y solo añade 'proximaRevision' en la entrada más reciente.
+// ===================================================================
+// === INICIO DE LA CORRECCIÓN: FUNCIÓN buscarDniEnDrive MEJORADA ===
+// ===================================================================
 async function buscarDniEnDrive(dni) {
     let todasLasNotasPublicas = [];
 
     for (const key in driveFileIds) {
         const fileId = driveFileIds[key];
         try {
+            // 1. Obtener el contenido del archivo
             const fileContent = await drive.files.get({ fileId: fileId, alt: 'media' });
-            const data = fileContent.data;
 
-            let expedientes = [];
-            if (key === 'familia' && Array.isArray(data)) {
-                 expedientes = data.filter(cliente => cliente.dni && cliente.dni.toString().trim() === dni.toString().trim());
-            } else if (key === 'siniestros' && Array.isArray(data)) {
-                 expedientes = data.filter(siniestro => siniestro.dni && siniestro.dni.toString().trim() === dni.toString().trim());
+            // 2. Asegurarse de que el JSON esté parseado
+            // (fileContent.data es el body. gaxios (usado por googleapis) 
+            // debería auto-parsear si el content-type es json)
+            let jsonData;
+            if (typeof fileContent.data === 'string') {
+                try {
+                    jsonData = JSON.parse(fileContent.data);
+                } catch (e) {
+                    console.error(`Error parseando JSON del archivo ${key}: ${e.message}`);
+                    continue; // Saltar a la siguiente iteración del loop
+                }
+            } else if (typeof fileContent.data === 'object' && fileContent.data !== null) {
+                jsonData = fileContent.data; // Ya está parseado
+            } else {
+                console.error(`Contenido inesperado del archivo ${key}: no es string ni objeto.`);
+                continue; // Saltar
             }
+
+            // 3. Lógica robusta para encontrar el array de expedientes
+            // El error original estaba en 'Array.isArray(data)'.
+            // Esto fallaba si el JSON no era un array en la raíz (ej: { "expedientes": [...] })
             
+            let records = [];
+            if (Array.isArray(jsonData)) {
+                // El archivo JSON es un array en la raíz: [ {...}, {...} ]
+                records = jsonData;
+            } else if (typeof jsonData === 'object') {
+                // El archivo JSON es un objeto: { "algunaClave": [ {...}, {...} ] }
+                // Buscamos la *primera* propiedad que sea un array
+                const arrayKey = Object.keys(jsonData).find(k => Array.isArray(jsonData[k]));
+                if (arrayKey) {
+                    records = jsonData[arrayKey];
+                } else {
+                    console.error(`Archivo ${key} (${fileId}) es un objeto JSON, pero no se encontró un array de expedientes dentro de él.`);
+                }
+            } else {
+                    console.error(`Archivo ${key} (${fileId}) no parece ser un JSON válido (array u objeto).`);
+            }
+
+            // 4. Filtrar los expedientes por DNI (unificado)
+            // Ya no necesitamos 'if (key === 'familia')' etc.
+            const expedientes = records.filter(item => 
+                item.dni && item.dni.toString().trim() === dni.toString().trim()
+            );
+
+            // 5. Procesar los expedientes encontrados (código original)
             if (expedientes.length > 0) {
-                 expedientes.forEach(exp => {
+                expedientes.forEach(exp => {
                     const titulo = `--- Expediente: ${exp.caratula || exp.numeroReclamo || 'General'} ---\n`;
                     
                     const notasFormateadas = (exp.observaciones || [])
@@ -72,14 +112,22 @@ async function buscarDniEnDrive(dni) {
                     }
                 });
             }
+            // Si expedientes.length === 0, simplemente no añade nada y el loop continúa.
 
         } catch (error) {
-            console.error(`Error al leer el archivo ${key} (${fileId}) de Drive:`, error.message);
+            console.error(`Error al leer o procesar el archivo ${key} (${fileId}) de Drive:`, error.message);
+            // Añadimos más detalle si es un error de API
+            if (error.response && error.response.data) {
+                console.error("Detalle del error de API:", JSON.stringify(error.response.data, null, 2));
+            }
         }
     }
 
     return todasLasNotasPublicas.join('\n\n');
 }
+// =================================================================
+// === FIN DE LA CORRECCIÓN: FUNCIÓN buscarDniEnDrive MEJORADA ===
+// =================================================================
 
 
 // --- RUTA PARA LA CONSULTA DE EXPEDIENTES ---
@@ -96,7 +144,7 @@ app.post('/api/consulta-expediente', async (req, res) => {
             return res.send("No se encontró información pública para el DNI proporcionado o no hay actuaciones para mostrar. Si cree que es un error, por favor póngase en contacto con el estudio.");
         }
 
-        // === CAMBIO CLAVE 2: PROMPT AJUSTADO PARA MANEJAR LA PRÓXIMA REVISIÓN ===
+        // === PROMPT AJUSTADO (código original) ===
         const prompt = `
             Eres un asistente legal del estudio "García & Asociados".
             Tu tarea es tomar las siguientes notas internas y presentarlas de forma clara y estructurada para que el cliente final lo entienda.
@@ -227,7 +275,7 @@ G. Certificados médicos`;
         - Destinatario: ${data.destinatario}, con domicilio en ${data.destinatarioDomicilio}
         **CARTA A GENERAR (sigue esta estructura):**
         ---
-        Lugar y fecha: Bernal, ${fechaActualFormateada}
+        Lugar y fecha: Bernal, ${fechaActualFormada}
         Destinatario: ${data.destinatario.toUpperCase()}
         Domicilio: ${data.destinatarioDomicilio}
         S/D

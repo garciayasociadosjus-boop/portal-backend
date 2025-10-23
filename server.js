@@ -28,37 +28,83 @@ const driveFileIds = {
 };
 
 
-// === CAMBIO CLAVE 1: LÓGICA DE FECHAS CORREGIDA ===
-// Usa 'fecha' para todo y solo añade 'proximaRevision' en la entrada más reciente.
+// ===================================================================
+// === INICIO DE LA FUNCIÓN CON DIAGNÓSTICO ===
+// ===================================================================
 async function buscarDniEnDrive(dni) {
     let todasLasNotasPublicas = [];
+    console.log(`[DEBUG] Iniciando búsqueda para DNI: ${dni}`);
 
     for (const key in driveFileIds) {
         const fileId = driveFileIds[key];
         try {
-            const fileContent = await drive.files.get({ fileId: fileId, alt: 'media' });
-            const data = fileContent.data;
-
-            let expedientes = [];
-            if (key === 'familia' && Array.isArray(data)) {
-                 expedientes = data.filter(cliente => cliente.dni && cliente.dni.toString().trim() === dni.toString().trim());
-            } else if (key === 'siniestros' && Array.isArray(data)) {
-                 expedientes = data.filter(siniestro => siniestro.dni && siniestro.dni.toString().trim() === dni.toString().trim());
-            }
+            console.log(`[DEBUG] Leyendo archivo: ${key} (ID: ${fileId})`);
             
+            // 1. Obtener el contenido del archivo
+            const fileContent = await drive.files.get({ fileId: fileId, alt: 'media' });
+
+            console.log(`[DEBUG] Tipo de dato recibido de Drive: ${typeof fileContent.data}`);
+
+            // 2. Asegurarse de que el JSON esté parseado
+            let jsonData;
+            if (typeof fileContent.data === 'string') {
+                console.log(`[DEBUG] El dato es un STRING. Intentando parsear...`);
+                try {
+                    jsonData = JSON.parse(fileContent.data);
+                } catch (e) {
+                    console.error(`[DEBUG] ERROR: El string no es un JSON válido. Archivo ${key}. Error: ${e.message}`);
+                    continue; // Saltar al siguiente archivo
+                }
+            } else if (typeof fileContent.data === 'object' && fileContent.data !== null) {
+                console.log(`[DEBUG] El dato es un OBJETO. Asignando directamente.`);
+                // Imprimimos solo una parte para no saturar la consola
+                console.log(`[DEBUG] Contenido (parcial): ${JSON.stringify(fileContent.data).substring(0, 400)}`);
+                jsonData = fileContent.data;
+            } else {
+                console.error(`[DEBUG] Contenido inesperado del archivo ${key}: no es string ni objeto.`);
+                continue; // Saltar
+            }
+
+            // 3. Lógica robusta para encontrar el array de expedientes
+            let records = [];
+            if (Array.isArray(jsonData)) {
+                // El archivo JSON es un array en la raíz: [ {...}, {...} ]
+                console.log(`[DEBUG] El JSON parseado ES un ARRAY. N° de registros: ${jsonData.length}`);
+                records = jsonData;
+            } else if (typeof jsonData === 'object') {
+                // El archivo JSON es un objeto: { "algunaClave": [ {...}, {...} ] }
+                console.log(`[DEBUG] El JSON parseado ES un OBJETO. Buscando un array dentro...`);
+                const arrayKey = Object.keys(jsonData).find(k => Array.isArray(jsonData[k]));
+                
+                if (arrayKey) {
+                    console.log(`[DEBUG] Array encontrado dentro del objeto, en la clave: "${arrayKey}"`);
+                    records = jsonData[arrayKey];
+                } else {
+                    console.error(`[DEBUG] ERROR: El JSON es un objeto, pero NO se encontró un array dentro de él.`);
+                }
+            } else {
+                    console.error(`[DEBUG] ERROR: El JSON parseado no es ni array ni objeto.`);
+            }
+
+            // 4. Filtrar los expedientes por DNI
+            const expedientes = records.filter(item => 
+                item.dni && item.dni.toString().trim() === dni.toString().trim()
+            );
+            
+            console.log(`[DEBUG] Expedientes encontrados para DNI ${dni} en archivo ${key}: ${expedientes.length}`);
+
+            // 5. Procesar los expedientes encontrados (código original)
             if (expedientes.length > 0) {
                  expedientes.forEach(exp => {
                     const titulo = `--- Expediente: ${exp.caratula || exp.numeroReclamo || 'General'} ---\n`;
                     
                     const notasFormateadas = (exp.observaciones || [])
-                        .filter(obs => obs.texto && obs.texto.trim() !== '' && obs.fecha) // Solo procesamos notas con texto y fecha de trabajo
-                        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) // Ordena de más reciente a más antiguo por fecha de trabajo
-                        .map((obs, index) => { // 'index' nos permite saber cuál es la primera (más reciente)
-                            // La fecha de trabajo es la principal
+                        .filter(obs => obs.texto && obs.texto.trim() !== '' && obs.fecha) 
+                        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) 
+                        .map((obs, index) => { 
                             const fechaTrabajoLegible = new Date(obs.fecha + 'T00:00:00').toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
                             let textoDeActuacion = `Fecha: ${fechaTrabajoLegible}\nActuación: ${obs.texto}`;
                             
-                            // SOLO para la actuación más reciente (index === 0), añadimos la próxima revisión si existe
                             if (index === 0 && obs.proximaRevision) {
                                 const proximaRevisionLegible = new Date(obs.proximaRevision + 'T00:00:00').toLocaleString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' });
                                 textoDeActuacion += `\n(Próxima revisión programada para el ${proximaRevisionLegible})`;
@@ -74,12 +120,19 @@ async function buscarDniEnDrive(dni) {
             }
 
         } catch (error) {
-            console.error(`Error al leer el archivo ${key} (${fileId}) de Drive:`, error.message);
+            console.error(`Error al leer o procesar el archivo ${key} (${fileId}) de Drive:`, error.message);
+            if (error.response && error.response.data) {
+                console.error("Detalle del error de API:", JSON.stringify(error.response.data, null, 2));
+            }
         }
     }
 
+    console.log(`[DEBUG] Búsqueda finalizada. Total de notas públicas: ${todasLasNotasPublicas.length}`);
     return todasLasNotasPublicas.join('\n\n');
 }
+// =================================================================
+// === FIN DE LA FUNCIÓN CON DIAGNÓSTICO ===
+// =================================================================
 
 
 // --- RUTA PARA LA CONSULTA DE EXPEDIENTES ---
@@ -96,11 +149,10 @@ app.post('/api/consulta-expediente', async (req, res) => {
             return res.send("No se encontró información pública para el DNI proporcionado o no hay actuaciones para mostrar. Si cree que es un error, por favor póngase en contacto con el estudio.");
         }
 
-        // === CAMBIO CLAVE 2: PROMPT AJUSTADO PARA MANEJAR LA PRÓXIMA REVISIÓN ===
+        // === PROMPT AJUSTADO (código original) ===
         const prompt = `
             Eres un asistente legal del estudio "García & Asociados".
             Tu tarea es tomar las siguientes notas internas y presentarlas de forma clara y estructurada para que el cliente final lo entienda.
-
             INSTRUCCIONES CLAVE:
             1.  **Formato de Salida:** Debes generar un único texto. Comienza con un saludo cordial ("Estimado/a cliente, a continuación le presentamos un resumen actualizado sobre el estado de sus expedientes.") y finaliza con "Atentamente, Estudio García & Asociados.".
             2.  **Estructura:** Para cada expediente (delimitado por "--- Expediente: ... ---"), crea un título usando Markdown (ej: ### **Expediente: CARATULA DEL EXPEDIENTE**).
@@ -109,7 +161,6 @@ app.post('/api/consulta-expediente', async (req, res) => {
             5.  **Próxima Revisión (IMPORTANTE):** Si una actuación incluye una nota entre paréntesis sobre una "próxima revisión", debes integrar esa información de forma natural al final de ESA MISMA viñeta. Por ejemplo: "Se presentó el escrito de demanda. **El próximo seguimiento del expediente está programado para el 25 de octubre de 2025.**"
             6.  **Orden:** Las notas ya vienen ordenadas de la más reciente a la más antigua. RESPETA ESE ORDEN.
             7.  **No Inventar:** Basa tu respuesta únicamente en las notas proporcionadas.
-
             Notas internas a procesar:
             ${notasPublicas}
         `;

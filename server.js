@@ -221,6 +221,9 @@ function numeroALetras(num) {
     return convertir(parteEntera);
 }
 
+// ===================================================================
+// === INICIO DE LA FUNCIÓN DE CARTA MODIFICADA ===
+// ===================================================================
 async function generarCartaConIA(data) {
     if (!openAiApiKey) {
         throw new Error("Falta la OPENAI_API_KEY en las variables de entorno de Railway.");
@@ -234,6 +237,16 @@ async function generarCartaConIA(data) {
     const montoEnLetras = numeroALetras(data.montoTotal);
     const montoEnNumeros = new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(data.montoTotal);
     
+    // --- INICIO DE MODIFICACIONES ---
+
+    // 1. Definir variables de Género para el CLIENTE (Resuelve Puntos 1 y 4)
+    // Usamos el dato 'generoCliente' que envía el HTML
+    const trato = (data.generoCliente === 'Femenino') ? 'Sra.' : 'Sr.';
+    const articulo = (data.generoCliente === 'Femenino') ? 'la' : 'el';
+    const asegurado = (data.generoCliente === 'Femenino') ? 'asegurada' : 'asegurado';
+    const representado = (data.generoCliente === 'Femenino') ? 'representada' : 'representado';
+
+    // 2. Mantener la lógica original del conductor (no tenemos su género)
     let conductorInfoParaIA = "El vehículo era conducido por el/la titular.";
     if (data.siniestro.conductorNombre && data.siniestro.conductorNombre.trim() !== '' && data.siniestro.conductorNombre.trim().toUpperCase() !== data.siniestro.cliente.trim().toUpperCase()) {
         conductorInfoParaIA = `El vehículo era conducido por el/la Sr./Sra. ${data.siniestro.conductorNombre}`;
@@ -258,44 +271,72 @@ F. Presupuesto de reparación`;
 G. Certificados médicos`;
     }
 
+    // 4. Modificar el PROMPT
     const promptText = `
-        Eres un asistente legal experto del estudio "García & Asociados". Tu tarea es redactar una carta de patrocinio con un tono formal, profesional y preciso, siguiendo estrictamente el modelo y las instrucciones.
+        Eres un asistente legal experto del estudio "García & Asociados". Tu tarea es redactar una carta de patrocinio formal y precisa, siguiendo estrictamente las instrucciones.
+        
         INSTRUCCIONES CLAVE:
-        1.  **Relato del Hecho:** No copies la descripción del siniestro. Debes crear un párrafo narrativo coherente y profesional que integre la descripción del hecho que te proporciono. Usa tu inteligencia para transformar los datos en un relato legal fluido.
-        2.  **Lógica del Conductor:** Te doy un dato clave: "${conductorInfoParaIA}". Si el vehículo estaba en movimiento y el conductor no es el titular, debes integrar esta información de forma natural en el relato (ej: "...el vehículo de mi mandante, que en la ocasión era conducido por [Nombre del Conductor], fue embestido..."). Si el vehículo estaba "estacionado", aplica la lógica y NO menciones quién lo conducía.
-        3.  **Responsabilidad:** Te doy una pista sobre la infracción: "${data.infracciones}". No la copies textualmente. Úsala para redactar la primera línea de la sección de responsabilidad de forma más elaborada y profesional (ej: si la pista es "maniobra imprudente", redacta algo como "- Realizó una maniobra intempestiva y carente de la debida precaución.").
-        4.  **Lesiones:** Si hay lesiones (${data.hayLesiones ? 'Sí' : 'No'}), debes mencionarlo en el relato de los hechos (sección II) de forma profesional, indicando que "Como producto del impacto, [el conductor/la Sra. X] sufrió lesiones, consistentes en ${data.lesionesDesc}".
-        5.  **Estructura y Formato:** Sigue la estructura de las secciones sin alterarla. Las secciones V y VI deben ser copiadas textualmente como se proporcionan en el modelo.
-        **DATOS A UTILIZAR:**
+        1.  **Género del Cliente (¡MUY IMPORTANTE!):**
+            -   Trato del cliente: ${trato} (Usar 'Sr.' o 'Sra.')
+            -   Artículo del cliente: ${articulo} (Usar 'el' o 'la')
+            -   Calidad del cliente: ${asegurado} (Usar 'asegurado' o 'asegurada')
+            -   Representación: ${representado} (Usar 'representado' o 'representada')
+            -   Debes usar estas variables en TODA la carta para asegurar la concordancia de género del cliente.
+
+        2.  **Relato del Hecho (¡MUY IMPORTANTE!):**
+            -   **Fecha y Hora (Resuelve Punto 2):** El relato en la sección "II. HECHOS" DEBE comenzar obligatoriamente con la fecha y hora del siniestro.
+            -   **Datos del Tercero (Resuelve Punto 3):** El relato DEBE incluir la descripción del vehículo N°2 (el tercero), mencionando su titular/conductor, el vehículo y su aseguradora.
+            -   **Lógica del Conductor:** Te doy un dato clave: "${conductorInfoParaIA}". Debes integrar esta información de forma natural en el relato SI el vehículo estaba en movimiento. Si estaba estacionado, NO menciones al conductor.
+            -   **Lesiones:** Si hay lesiones (${data.hayLesiones ? 'Sí' : 'No'}), debes mencionarlo en el relato (ej: "...sufrió lesiones, consistentes en ${data.lesionesDesc}").
+
+        3.  **Responsabilidad:** Te doy una pista sobre la infracción: "${data.infracciones}". No la copies textualmente. Úsala para redactar la primera línea de la sección de responsabilidad (ej: si la pista es "maniobra imprudente", redacta "Realizó una maniobra intempestiva...").
+        
+        4.  **Estructura y Formato:** Sigue la estructura de las secciones sin alterarla. Las secciones V y VI deben ser copiadas textualmente como se proporcionan en el modelo.
+
+        **DATOS PRINCIPALES (para tu referencia):**
         - Fecha de Hoy: ${fechaActualFormateada}
-        - Datos del Cliente: ${data.siniestro.cliente}, DNI ${data.siniestro.dni}
-        - Descripción del Siniestro (para tu relato): "${data.relato}"
+        - Datos del Cliente: ${trato} ${data.siniestro.cliente.toUpperCase()}, DNI ${data.siniestro.dni}
         - Vehículo del Cliente: ${data.vehiculoCliente}
         - Partes Dañadas: ${data.partesDanadas}
-        - Pista sobre la infracción del Tercero: ${data.infracciones}
-        - Monto en Letras: ${montoEnLetras}
-        - Monto en Números: ${montoEnNumeros}
+        - Fecha/Hora Siniestro: ${data.fechaSiniestro} a las ${data.horaSiniestro}
+        - Relato Base: "${data.relato}"
+        - Datos del Tercero (Vehículo N°2):
+            - Titular/Conductor: ${data.nombreTercero}
+            - Vehículo: ${data.vehiculoTercero}
+            - Aseguradora: ${data.destinatario}
+        - Pista Infracción: ${data.infracciones}
+        - Monto Total: ${montoEnLetras} (${montoEnNumeros})
         - Destinatario: ${data.destinatario}, con domicilio en ${data.destinatarioDomicilio}
+
         **CARTA A GENERAR (sigue esta estructura):**
         ---
         Lugar y fecha: Bernal, ${fechaActualFormateada}
         Destinatario: ${data.destinatario.toUpperCase()}
         Domicilio: ${data.destinatarioDomicilio}
         S/D
+
         I. OBJETO
-        Por medio de la presente, y en mi carácter de representante legal del/la Sr./Sra. ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños materiales ${data.hayLesiones ? 'y lesiones físicas' : ''} sufridos como consecuencia del siniestro vial que se detalla a continuación.
+        Por medio de la presente, y en mi carácter de representante legal de ${articulo} ${trato} ${data.siniestro.cliente.toUpperCase()}, DNI N° ${data.siniestro.dni}, vengo en legal tiempo y forma a formular RECLAMO FORMAL por los daños materiales ${data.hayLesiones ? 'y lesiones físicas' : ''} sufridos como consecuencia del siniestro vial que se detalla a continuación.
+
         II. HECHOS
-        [AQUÍ CONSTRUYE EL RELATO COHERENTE COMO SE TE INDICÓ EN LAS INSTRUCCIONES 1, 2 Y 4]
+        El día ${data.fechaSiniestro}, siendo aproximadamente las ${data.horaSiniestro} horas, ${articulo} ${asegurado} de mi estudio circulaba al mando de su vehículo ${data.vehiculoCliente}.
+        [AQUÍ CONSTRUYE EL RELATO: Integra "${data.relato}", la lógica de "${conductorInfoParaIA}", y OBLIGATORIAMENTE describe al otro vehículo (el tercero) usando los datos: "${data.nombreTercero}", "${data.vehiculoTercero}", y su aseguradora "${data.destinatario}"].
+        
         El impacto se produjo en las siguientes partes del vehículo de mi cliente: ${data.partesDanadas}.
-        Como consecuencia directa del referido evento, el vehículo de mi representado/a sufrió los daños materiales cuya reparación constituye el objeto del presente reclamo.
+        Como consecuencia directa del referido evento, el vehículo de mi ${representado} sufrió los daños materiales cuya reparación constituye el objeto del presente reclamo.
+        ${data.hayLesiones ? `Asimismo, como producto del impacto, ${articulo} ${trato} ${data.siniestro.cliente} sufrió lesiones, consistentes en ${data.lesionesDesc}.` : ''}
+
         III. RESPONSABILIDAD
-        La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su asegurado/a, quien incurrió en las siguientes faltas:
-        [AQUÍ REDACTA LA PRIMERA INFRACCIÓN BASÁNDOTE EN LA PISTA, COMO SE INDICÓ EN LA INSTRUCCIÓN 3]
+        La responsabilidad del siniestro recae exclusivamente en el conductor del vehículo de su ${asegurado}, quien incurrió en las siguientes faltas:
+        [AQUÍ REDACTA LA PRIMERA INFRACCIÓN BASÁNDOTE EN LA PISTA "${data.infracciones}", COMO SE INDICÓ EN LA INSTRUCCIÓN 3]
         - Incumplió el deber de prudencia y diligencia en la conducción.
         - Causó el daño por su conducta antirreglamentaria.
+
         IV. DAÑOS RECLAMADOS
-        Se reclama el valor total de los daños sufridos por mi mandante, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros})${data.hayLesiones ? ', importe que comprende tanto los daños materiales como la reparación por las lesiones padecidas.' : '.'}
+        Se reclama el valor total de los daños sufridos por mi ${representado}, que asciende a la suma de PESOS ${montoEnLetras.toUpperCase()} (${montoEnNumeros})${data.hayLesiones ? ', importe que comprende tanto los daños materiales como la reparación por las lesiones padecidas.' : ''}
+
         ${pruebaDocumental}
+
         VI. PETITORIO
         Por todo lo expuesto, y considerando que se encuentran acreditados tanto el hecho generador como la extensión de los daños sufridos, SOLICITO:
         1. Se tenga por presentado el presente reclamo en legal tiempo y forma.
@@ -315,16 +356,22 @@ G. Certificados médicos`;
     const response = await axios.post(url, requestBody, { headers });
     
     const cartaSinFirma = response.data.choices[0].message.content.trim();
+    
+    // 3. Actualizar la firma con tus datos guardados
     const firma = `
 ____________________________________
-Dra. Camila Florencia García
+Dra. Camila Florencia Rodríguez García
 T° XII F° 383 C.A.Q.
 CUIT 27-38843361-8
 Zapiola 662, Bernal – Quilmes
 garciayasociadosjus@gmail.com`;
+    // --- FIN DE MODIFICACIONES ---
 
     return cartaSinFirma + firma;
 }
+// ===================================================================
+// === FIN DE LA FUNCIÓN DE CARTA MODIFICADA ===
+// ===================================================================
 
 app.post('/api/generar-carta', async (req, res) => {
     try {

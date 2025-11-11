@@ -222,6 +222,102 @@ function numeroALetras(num) {
 }
 
 // ===================================================================
+// === INICIO NUEVA FUNCIÓN CONVENIO DE HONORARIOS
+// ===================================================================
+async function generarConvenioConIA(data) {
+    if (!openAiApiKey) {
+        throw new Error("Falta la OPENAI_API_KEY en las variables de entorno.");
+    }
+
+    const url = 'https://api.openai.com/v1/chat/completions';
+
+    // --- 1. Datos del Estudio (Tus datos) ---
+    // (Estos datos los tomo de nuestra conversación previa)
+    const ABOGADA_NOMBRE = "Dra. CAMILA FLORENCIA RODRIGUEZ GARCIA";
+    const ABOGADA_MATRICULA = "Tº XII Fº 383";
+    const ABOGADA_COLEGIO = "Colegio de Abogados del Departamento Judicial de Quilmes";
+    const ABOGADA_DOMICILIO = "calle Zapiola N° 662 Bernal";
+
+    // --- 2. Datos del Formulario (data) ---
+    const { 
+        clienteNombre, clienteDNI, clienteDomicilio, 
+        fechaSiniestro, lugarSiniestro, vehiculoTercero, 
+        aseguradoraTercero, tipoDanos, cuotaLitisPorcentaje, 
+        lugarFirma 
+    } = data;
+
+    // --- 3. Datos Calculados ---
+    const porcentajeNum = parseFloat(cuotaLitisPorcentaje).toFixed(0); // Ej: "10"
+    const porcentajeLetras = numeroALetras(parseInt(porcentajeNum)); // Ej: "diez"
+    
+    // Formatear fecha siniestro
+    const fechaSiniestroObj = new Date(fechaSiniestro + 'T00:00:00'); // Asegurar zona horaria UTC
+    const fechaSiniestroFormateada = fechaSiniestroObj.toLocaleDateString('es-AR', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' });
+
+    // Formatear fecha firma (hoy)
+    const hoy = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+    const diaFirma = hoy.getDate();
+    const mesFirma = hoy.toLocaleDateString('es-AR', { month: 'long' });
+    const anioFirma = hoy.getFullYear();
+
+    // --- 4. Construcción del Prompt ---
+    // Usamos la plantilla exacta que me diste
+    const promptText = `
+        Eres un asistente legal experto del estudio "García & Asociados".
+        Tu tarea es generar el texto de un Convenio de Honorarios.
+        Debes usar EXACTAMENTE los datos proporcionados para completar la plantilla.
+        Tu única respuesta debe ser el texto completo del convenio. No agregues saludos, explicaciones, ni uses Markdown.
+
+        PLANTILLA A COMPLETAR (Sigue esta estructura textualmente):
+        ---
+        CONVENIO DE HONORARIOS
+
+        Entre el Estudio García & Asociados, representado en este acto por la ${ABOGADA_NOMBRE}, abogada inscripta en el ${ABOGADA_MATRICULA}, del ${ABOGADA_COLEGIO}, con domicilio en la ${ABOGADA_DOMICILIO}, en adelante denominado "EL ESTUDIO", y por la otra parte el Sr./Sra. ${clienteNombre.toUpperCase()}, DNI Nº ${clienteDNI}, en adelante denominado "EL CLIENTE", con domicilio real en la calle ${clienteDomicilio}, convienen en celebrar el presente convenio de honorarios el que se regirá por las siguientes cláusulas y condiciones.
+
+        I. OBJETO:
+        EL CLIENTE encomienda a EL ESTUDIO, y este acepta, la gestión y representación en el reclamo extrajudicial y/o administrativo (y/o la eventual mediación) contra el conductor y/o titular registral del vehículo ${vehiculoTercero} (y/o contra quien resulte civilmente responsable y/o su compañía de seguros, ${aseguradoraTercero}), con motivo del siniestro ocurrido en fecha ${fechaSiniestroFormateada} en ${lugarSiniestro}. La gestión comprende todas las negociaciones, presentaciones y la eventual suscripción de un acuerdo transaccional con el fin de obtener la indemnización correspondiente por los daños y perjuicios (${tipoDanos}) sufridos por EL CLIENTE.
+
+        II. HONORARIOS (PACTO DE CUOTA LITIS):
+        Las partes convienen en concepto de honorarios profesionales por la tarea encomendada en la cláusula PRIMERA, el ${porcentajeLetras} por ciento (${porcentajeNum}%) del monto total que EL CLIENTE perciba como resultado de la gestión, ya sea por acuerdo transaccional, administrativo, judicial o cualquier otra forma de pago. Este porcentaje se aplicará sobre el capital bruto de la indemnización, antes de cualquier descuento que no corresponda a los gastos estipulados en la cláusula TERCERA. Los honorarios serán abonados por EL CLIENTE a EL ESTUDIO en el mismo acto de percibir la indemnización. En caso de que la compañía de seguros abone la indemnización directamente a EL CLIENTE (sea por depósito, transferencia o cheque), este se compromete a abonar el porcentaje pactado a EL ESTUDIO dentro de las 24 horas hábiles de acreditados los fondos.
+
+        III. GASTOS:
+        Por la presente “EL CLIENTE” reconoce que todos los gastos que se generen atinentes a la gestión que realizará “EL ESTUDIO” (tales como cartas documento, informes, peritajes de parte, etc.) y la totalidad de aportes e impuestos de ley, serán solventados por “EL CLIENTE”. Dichos gastos son independientes y no están incluidos en los honorarios pactados en la cláusula SEGUNDA.
+
+        IV. RESCISIÓN:
+        En el caso que EL CLIENTE, revoque el mandato, rescinda, o deje sin efecto y sin causa justificada el presente contrato antes de la finalización de la gestión, EL ESTUDIO tendrá derecho a que sus honorarios por la labor profesional efectivamente realizada sean regulados judicialmente, de acuerdo a los parámetros de la Ley 14.967.
+
+        V. OBLIGACIONES DEL CLIENTE:
+        EL CLIENTE se compromete por el presente a poner a disposición de EL ESTUDIO, en forma inmediata, la totalidad de la documentación que este le requiera para el impulso del reclamo (tales como denuncia de siniestro, fotografías, presupuestos, informes médicos, datos de testigos, etc.), como así también a comparecer a toda citación que se le formule (v.g., para revisación médica, peritaje del vehículo, etc.).
+
+        VI. MORA:
+        Las partes pautan que la mora en el pago de los honorarios convenidos (Cláusula Segunda) o de los gastos (Cláusula Tercera) se producirá de pleno derecho y en forma automática, y sin necesidad de interpelación judicial, ni extrajudicial alguna, de acuerdo a lo normado por el Art. 886 del Código Civil y Comercial. Para cuyo caso se aplicará la tasa activa del Banco Provincia de Buenos Aires, al día del efectivo pago.
+
+        VII. RESOLUCIÓN:
+        El contrato se considerará resuelto de pleno derecho en el caso que EL CLIENTE incumpla en cualquiera de las obligaciones que se compromete por el presente (especialmente Cláusulas TERCERA y QUINTA), pudiendo en este caso EL ESTUDIO hacer el reclamo por los daños y perjuicios que se le hayan ocasionado y/o solicitar la regulación de sus honorarios por la tarea efectuada.
+
+        VIII. JURISDICCIÓN:
+        Para todos los efectos del presente convenio, las partes constituyen domicilio especial en los ut-supra referenciados; lugares estos en donde se tendrán por válidas y eficaces todas las notificaciones que se efectúen. Asimismo, acuerdan que será competente para conocer en cualquier cuestión vinculada al presente convenio la justicia ordinaria en lo Civil y Comercial del Departamento Judicial de Quilmes, haciendo desde ya renuncia expresa a cualquier otro fuero o jurisdicción que pudiere corresponderles.
+        En prueba de conformidad, previa lectura y ratificación de las cláusulas que anteceden, firman las partes dos ejemplares de idéntico tenor y a un solo efecto, en el Partido de ${lugarFirma}, a los ${diaFirma} días del mes de ${mesFirma} de ${anioFirma}.-
+        ---
+    `;
+
+    const requestBody = {
+      model: "gpt-4o", // Usamos un modelo potente para documentos legales
+      messages: [{"role": "user", "content": promptText}],
+      temperature: 0.2, // Baja temperatura para que siga la plantilla
+    };
+    const headers = { 'Authorization': `Bearer ${openAiApiKey}`, 'Content-Type': 'application/json' };
+    const response = await axios.post(url, requestBody, { headers });
+    
+    // Devuelve solo el texto, sin firma (como en tu plantilla)
+    return response.data.choices[0].message.content.trim();
+}
+// ===================================================================
+// === FIN FUNCIÓN CONVENIO DE HONORARIOS
+// ===================================================================
+
+
+// ===================================================================
 // === INICIO DE LA FUNCIÓN DE CARTA MODIFICADA ===
 // ===================================================================
 async function generarCartaConIA(data) {
@@ -385,6 +481,24 @@ app.post('/api/generar-carta', async (req, res) => {
 });
 // --- FIN DE TU CÓDIGO ORIGINAL ---
 
+// ===================================================================
+// === INICIO NUEVA RUTA CONVENIO DE HONORARIOS
+// ===================================================================
+app.post('/api/generar-convenio', async (req, res) => {
+    try {
+        const convenioGenerado = await generarConvenioConIA(req.body);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.send(convenioGenerado);
+    } catch (error) {
+        console.error("Error al generar el convenio con IA:", error.response ? error.response.data.error : error);
+        res.status(500).json({ error: 'Error interno del servidor al generar el convenio.', detalle: error.response ? JSON.stringify(error.response.data.error) : "Error desconocido" });
+    }
+});
+// ===================================================================
+// === FIN NUEVA RUTA CONVENIO DE HONORARIOS
+// ===================================================================
+
+
 app.listen(process.env.PORT || 3001, () => {
-  console.log(`✅✅✅ Servidor escuchando con la nueva funcionalidad de consulta de expedientes...`);
+  console.log(`✅✅✅ Servidor escuchando con consulta de expedientes y generación de convenios...`);
 });
